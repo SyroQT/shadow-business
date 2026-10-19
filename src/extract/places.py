@@ -49,9 +49,17 @@ class TileResult:
 
 
 class _PageFailed(Exception):
-    def __init__(self, page: int, error: ApiError, req_hash: str):
+    def __init__(self, page: int, error: ApiError, req_hash: str, places: list):
         super().__init__(str(error))
-        self.page, self.error, self.req_hash = page, error, req_hash
+        self.page, self.error, self.req_hash, self.places = page, error, req_hash, places
+
+
+class CapWithPartial(CapReached):
+    """CapReached that carries the places from pages already fetched for the tile."""
+
+    def __init__(self, message: str, places: list):
+        super().__init__(message)
+        self.places = places
 
 
 def _fetch_chain(client: SourceClient, included_type: str, tile: Tile, use_cache: bool):
@@ -64,7 +72,9 @@ def _fetch_chain(client: SourceClient, included_type: str, tile: Tile, use_cache
             resp = client.request("POST", SEARCH_URL, body, use_cache=use_cache,
                                   headers={"X-Goog-FieldMask": FIELD_MASK})
         except ApiError as e:
-            raise _PageFailed(page, e, rh) from None
+            raise _PageFailed(page, e, rh, places) from None
+        except CapReached as e:
+            raise CapWithPartial(str(e), places) from None
         data = resp.json()
         for p in data.get("places", []):
             places.append((p["id"], p, rh, resp.fetched_at))
@@ -85,7 +95,7 @@ def search_tile(client: SourceClient, included_type: str, tile: Tile) -> TileRes
             # Stale pageToken (e.g. cached page 1 outlived its tokens): refetch the chain.
             places = _fetch_chain(client, included_type, tile, use_cache=False)
     except _PageFailed as e:
-        return TileResult(error=(e.error.status, e.error.message, e.req_hash))
+        return TileResult(places=e.places, error=(e.error.status, e.error.message, e.req_hash))
     return TileResult(places=places, saturated=len(places) >= MAX_RESULTS)
 
 
@@ -118,6 +128,15 @@ def _run_work(con, client, config, run, stats, names, work, roots) -> None:
         errors: list[dict] = []
         saturated = gaps = 0
         capped_at: int | None = None
+
+        def add(tile, places, seen=seen, rows=rows, cat=cat):
+            for pid, place, rh, at in places:
+                if pid in seen:
+                    continue
+                seen.add(pid)
+                rows.append({"category": cat, "tile_id": tile.tile_id, "request_hash": rh,
+                             "place_id": pid, "payload": place, "retrieved_at": at})
+
         queue: list[Tile] = []
         for idx, (c, ptype) in enumerate(work):
             if c != cat:
@@ -126,14 +145,13 @@ def _run_work(con, client, config, run, stats, names, work, roots) -> None:
             try:
                 while queue:
                     tile = queue[0]
-                    res = search_tile(client, ptype, tile)
+                    try:
+                        res = search_tile(client, ptype, tile)
+                    except CapWithPartial as e:
+                        add(tile, e.places)  # land pages fetched before the cap
+                        raise
                     queue.pop(0)
-                    for pid, place, rh, at in res.places:
-                        if pid in seen:
-                            continue
-                        seen.add(pid)
-                        rows.append({"category": cat, "tile_id": tile.tile_id, "request_hash": rh,
-                                     "place_id": pid, "payload": place, "retrieved_at": at})
+                    add(tile, res.places)
                     if res.error:
                         status, msg, rh = res.error
                         errors.append({"category": cat, "tile_id": tile.tile_id,

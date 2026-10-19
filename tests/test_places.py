@@ -169,6 +169,28 @@ def test_non_400_error_on_later_page_not_refetched(tmp_path):
     client, calls = make_client(tmp_path, handler)
     r = search_tile(client, "cafe", TILE)
     assert r.error[0] == 404 and len(calls) == 2
+    assert len(r.places) == 20  # page-1 rows are kept
+
+
+def test_later_page_error_lands_page1_rows_and_error_row(con, tmp_path):
+    def handler(body):
+        if body.get("pageToken"):
+            return httpx.Response(404, json={})
+        return full_page(body)
+
+    client, _ = make_client(tmp_path, handler)
+    stats = run_places(con, client, config({"cat": ["cafe"]}, min_tile_km=1.0), RUN)
+    assert stats.items_ok == 20 and stats.items_failed == 1
+    assert len(rows(con, "places_errors")) == 1
+
+
+def test_cap_mid_chain_lands_fetched_pages(con, tmp_path):
+    client, calls = make_client(tmp_path, full_page, max_requests=2)
+    cfg = config({"cat": ["cafe"]}, min_tile_km=1.0)
+    stats = run_places(con, client, cfg, RUN)
+    assert len(calls) == 2 and stats.status == "capped"
+    assert len(rows(con)) == 40
+    assert "unqueried_tiles=1" in stats.notes
 
 
 def test_auth_error_propagates_from_search_tile(tmp_path):
