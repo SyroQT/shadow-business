@@ -65,7 +65,7 @@ def test_chain_dedupe(con):
     _put(con, run, [("cafe", "p1", "http://www.chain.lt"), ("cafe", "p2", "https://chain.lt/"),
                     ("cafe", "p3", "https://chain.lt/?utm_medium=x")])
     out = targets(con, run.run_id, CFG)
-    assert out == [Target(url="http://www.chain.lt/", place_ids=["p1", "p2", "p3"], cls="crawl")]
+    assert out == [Target(url="https://chain.lt/", place_ids=["p1", "p2", "p3"], cls="crawl")]
 
 
 def test_targets_classes_and_multicategory(con):
@@ -80,3 +80,26 @@ def test_targets_classes_and_multicategory(con):
         ("no_website", "", ["p2"]),
         ("social_domain", "https://www.facebook.com/x", ["p3"]),
     ]
+
+
+def test_representative_preference(con):
+    run = new_run("2026-10")
+    _put(con, run, [("c", "a1", "http://x.lt"), ("c", "a2", "https://www.x.lt"),
+                    ("c", "b1", "http://www.y.lt"), ("c", "b2", "http://y.lt")])
+    out = targets(con, run.run_id, CFG)
+    assert [t.url for t in out] == ["http://y.lt/", "https://www.x.lt/"]
+
+
+@pytest.mark.parametrize("url", ["http://x.lt:abc", "http://x.lt:99999"])
+def test_bad_port_is_no_website(url):
+    assert classify(url, SOCIAL) == "no_website"
+
+
+def test_bad_port_does_not_abort_targets(con):
+    run = new_run("2026-10")
+    _put(con, run, [("c", "p1", "http://x.lt:abc"), ("c", "p2", "http://x.lt:99999"),
+                    ("c", "p3", "https://ok.lt/")])
+    out = targets(con, run.run_id, CFG)
+    assert [(t.cls, t.url, t.place_ids) for t in out] == [
+        ("crawl", "https://ok.lt/", ["p3"]), ("no_website", "", ["p1"]),
+        ("no_website", "", ["p2"])]

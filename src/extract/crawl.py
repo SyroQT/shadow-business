@@ -22,6 +22,10 @@ def _split(url: str):
     parts = urlsplit(url)
     if parts.scheme.lower() not in ("http", "https"):
         raise ValueError(f"unsupported scheme in {url!r}")
+    try:
+        parts.port
+    except ValueError as e:
+        raise ValueError(f"bad port in {url!r}") from e
     host = (parts.hostname or "").rstrip(".").lower()
     if not host or re.search(r"\s", host):
         raise ValueError(f"no host in {url!r}")
@@ -71,6 +75,11 @@ def classify(website: str | None, social_domains: list[str]) -> Cls:
     return "crawl"
 
 
+def _prefer(url: str) -> tuple:
+    """R18: prefer https, then bare host, then shortest, then lexicographic."""
+    return (not url.startswith("https://"), urlsplit(url).netloc.startswith("www."), len(url), url)
+
+
 @dataclass
 class Target:
     url: str
@@ -101,6 +110,6 @@ def targets(con, run_id: str, crawl_cfg: CrawlConfig) -> list[Target]:
             urls.append(norm)
             pids.append(pid)
     for urls, pids in groups.values():
-        out.append(Target(min(urls), sorted(pids), "crawl"))
+        out.append(Target(min(urls, key=_prefer), sorted(pids), "crawl"))
     out.sort(key=lambda t: (t.cls, t.url, t.place_ids))
     return out
