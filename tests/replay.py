@@ -1,6 +1,7 @@
 """Replay recorded API calls (tests/fixtures/recorded/) through httpx.MockTransport."""
 
 import json
+from collections.abc import Callable
 from pathlib import Path
 
 import httpx
@@ -21,9 +22,11 @@ def load_recordings(*sources: str) -> dict[str, dict]:
     return out
 
 
-def replay_transport(*sources: str, calls: list | None = None) -> httpx.MockTransport:
-    """MockTransport answering recorded requests; unknown requests fail loudly.
-    Pass a list as `calls` to collect the hashes of requests served."""
+def replay_transport(*sources: str, calls: list | None = None,
+                     fallback: Callable[[httpx.Request], httpx.Response] | None = None
+                     ) -> httpx.MockTransport:
+    """MockTransport answering recorded requests; unknown requests fail loudly unless
+    a `fallback` handler is given. Pass a list as `calls` to collect served hashes."""
     recordings = load_recordings(*sources)
 
     def handler(request: httpx.Request) -> httpx.Response:
@@ -31,6 +34,8 @@ def replay_transport(*sources: str, calls: list | None = None) -> httpx.MockTran
         h = request_hash(request.method, str(request.url), body)
         rec = recordings.get(h)
         if rec is None:
+            if fallback is not None:
+                return fallback(request)
             raise AssertionError(f"no recording for {request.method} {request.url} ({h[:12]})")
         if calls is not None:
             calls.append(h)
