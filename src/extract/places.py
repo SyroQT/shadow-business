@@ -2,14 +2,18 @@
 from dataclasses import dataclass, field
 from datetime import datetime
 
+import argparse
+import re
+import sys
+
 import duckdb
 
-from src.cache import ApiError, CapReached, SourceClient, request_hash
-from src.db import StepStats, insert_rows, step
+from src.cache import ApiError, CapReached, SourceClient, places_client, request_hash
+from src.db import StepStats, connect, insert_rows, step
 from src.extract.tiles import Tile, root_tiles, split
 from src.log import log
-from src.run import RunContext
-from src.settings import AppConfig
+from src.run import RunContext, new_run
+from src.settings import AppConfig, load_config, load_settings
 
 SEARCH_URL = "https://places.googleapis.com/v1/places:searchText"
 FIELD_MASK = ",".join([
@@ -179,3 +183,76 @@ def _run_work(con, client, config, run, stats, names, work, roots) -> None:
             stats.notes.append(f"unqueried_tiles={remaining}")
             stats.status = "capped"
             return
+
+
+def _note_int(notes: str | None, category: str, key: str) -> int:
+    """Value of the `{category}:{key}=N` entry in run_log.notes (0 when absent)."""
+    m = re.search(rf"(?:^|; ){re.escape(category)}:{re.escape(key)}=(\d+)", notes or "")
+    return int(m.group(1)) if m else 0
+
+
+def places_summary(con: duckdb.DuckDBPyConnection, run_id: str) -> list[dict]:
+    row = con.execute(
+        "select notes from raw.run_log where run_id = ? and step = 'places'"
+        " order by finished_at desc limit 1", [run_id]).fetchone()
+    notes = row[0] if row else None
+    counts = {r[0]: r[1:] for r in con.execute(
+        "select category, count(*), count(distinct place_id),"
+        " count(*) filter (where payload->>'websiteUri' is not null)"
+        " from raw.places where run_id = ? group by 1", [run_id]).fetchall()}
+    cats = sorted(set(counts) | set(re.findall(r"(?:^|; )([^:;]+):saturated_tiles=", notes or "")))
+    out = []
+    for c in cats:
+        n, uniq, web = counts.get(c, (0, 0, 0))
+        out.append({"category": c, "places": n, "unique_places": uniq, "with_website": web,
+                    "saturated_tiles": _note_int(notes, c, "saturated_tiles"),
+                    "coverage_gaps": _note_int(notes, c, "coverage_gaps")})
+    return out
+
+
+def main(argv: list[str] | None = None, *, client: SourceClient | None = None,
+         con: duckdb.DuckDBPyConnection | None = None,
+         config: AppConfig | None = None) -> int:
+    """CLI entry. client/con/config are test seams; by default built from settings."""
+    ap = argparse.ArgumentParser(prog="python -m src.extract.places")
+    ap.add_argument("--category", action="append", help="category to run (repeatable)")
+    ap.add_argument("--run-id", help="reuse an existing run id")
+    args = ap.parse_args(argv)
+
+    settings = load_settings() if client is None or con is None or config is None else None
+    if config is None:
+        config = load_config(settings.config_path)
+    unknown = sorted(set(args.category or []) - set(config.categories))
+    if unknown:
+        ap.error(f"unknown category: {', '.join(unknown)} (known: {', '.join(sorted(config.categories))})")
+    if args.run_id:
+        month = args.run_id.split("_")[0]
+        run = RunContext(args.run_id, month, new_run(month).started_at)
+    else:
+        run = new_run(settings.run_month if settings else None)
+    own_con = con is None
+    if con is None:
+        con = connect(settings.db_path)
+    if client is None:
+        client = places_client(settings)
+    try:
+        try:
+            stats = run_places(con, client, config, run, args.category)
+        except Exception as exc:
+            log("error", step="places", run_id=run.run_id, error=type(exc).__name__)
+            return 1
+        for row in places_summary(con, run.run_id):
+            log("places_summary", run_id=run.run_id, **row)
+        if stats.status == "capped":
+            log("warning", step="places", run_id=run.run_id, message="request cap reached")
+        elif stats.items_failed:
+            log("warning", step="places", run_id=run.run_id,
+                message=f"partial: {stats.items_failed} failed items")
+        return 0
+    finally:
+        if own_con:
+            con.close()
+
+
+if __name__ == "__main__":
+    sys.exit(main())
