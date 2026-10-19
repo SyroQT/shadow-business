@@ -22,3 +22,8 @@ crawl:
                    linkedin.com, booksy.com, fresha.com, treatwell.lt, manobooking.lt, page.link]
   legal_link_pattern: "kontakt|rekvizit|apie|about|contact|privatum|privacy|taisykl|terms|imone|company"
   max_legal_links: 2
+
+sodra:
+  # Copy the real monthly-zip link from https://atvira.sodra.lt/imones/rinkiniai/index.html
+  # in a browser (the site is behind a Cloudflare challenge); use {year} for the year.
+  url_pattern: null

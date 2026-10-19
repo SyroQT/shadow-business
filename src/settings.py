@@ -64,10 +64,15 @@ class CrawlConfig(BaseModel):
     max_legal_links: int = 2
 
 
+class SodraConfig(BaseModel):
+    url_pattern: str | None = None
+
+
 class AppConfig(BaseModel):
     area: Area
     categories: dict[str, Category]
     crawl: CrawlConfig
+    sodra: SodraConfig = SodraConfig()
 
 
 def load_settings() -> Settings:

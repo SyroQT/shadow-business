@@ -30,7 +30,12 @@ class CapReached(Exception):
 
 
 class AuthError(Exception):
-    """401/403 from the API."""
+    """401/403 from the API. Response headers and a body snippet are kept for diagnosis."""
+
+    def __init__(self, message: str, headers: dict | None = None, body: str = ""):
+        super().__init__(message)
+        self.headers = headers or {}
+        self.body = body
 
 
 class ApiError(Exception):
@@ -152,7 +157,9 @@ class SourceClient:
         transport: httpx.BaseTransport | None = None,
         timeout: float = 30,
         sleep=time.sleep,
+        follow_redirects: bool = False,
     ):
+        self.follow_redirects = follow_redirects
         self.source = source
         self.cache = cache
         self.limiter = limiter
@@ -186,7 +193,8 @@ class SourceClient:
             sleep=self.sleep,
             reraise=True,
         )
-        with httpx.Client(transport=self.transport, timeout=self.timeout, headers=self.headers) as http:
+        with httpx.Client(transport=self.transport, timeout=self.timeout, headers=self.headers,
+                          follow_redirects=self.follow_redirects) as http:
             try:
                 resp = retrying(self._attempt, http, method, url, json_body)
             except _Retryable as e:
@@ -210,7 +218,7 @@ class SourceClient:
         if 200 <= status < 300:
             return resp
         if status in (401, 403):
-            raise AuthError(f"{self.source}: HTTP {status}")
+            raise AuthError(f"{self.source}: HTTP {status}", dict(resp.headers), _short(resp.text))
         if status == 429 or status >= 500:
             raise _Retryable(status, _short(resp.text), _retry_after(resp) if status == 429 else None)
         raise ApiError(status, _short(resp.text))
@@ -244,10 +252,10 @@ def robots_client(settings: Settings, **kw) -> SourceClient:
     return SourceClient(
         "robots", _cache(settings, "robots", ROBOTS_TTL),
         TokenBucket(settings.places_rate_per_sec), None,
-        {"User-Agent": _user_agent(settings)}, **kw)
+        {"User-Agent": _user_agent(settings)}, follow_redirects=True, **kw)
 
 
 def sodra_client(settings: Settings, **kw) -> SourceClient:
     return SourceClient(
         "sodra", None, TokenBucket(1), None,
-        {"User-Agent": _user_agent(settings)}, **kw)
+        {"User-Agent": _user_agent(settings)}, follow_redirects=True, **kw)

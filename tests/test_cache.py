@@ -232,3 +232,27 @@ def test_factories(tmp_path):
     assert so.cache is None and so.headers["User-Agent"] == r.headers["User-Agent"]
     assert p.cache.ttl == timedelta(days=30) and r.cache.ttl == timedelta(days=1)
     assert f.limiter.interval == pytest.approx(6.0)
+
+
+def test_follow_redirects_opt_in(tmp_path):
+    def handler(request):
+        if request.url.path == "/start":
+            return httpx.Response(302, headers={"Location": "https://api.example.test/final"})
+        return httpx.Response(200, content=b"done")
+
+    def build(follow):
+        return SourceClient("t", None, TokenBucket(1000, sleep=lambda s: None), None, {},
+                            transport=httpx.MockTransport(handler), follow_redirects=follow)
+
+    r = build(True).request("GET", "https://api.example.test/start")
+    assert (r.status, r.content) == (200, b"done")
+    with pytest.raises(ApiError):
+        build(False).request("GET", "https://api.example.test/start")
+
+
+def test_auth_error_carries_headers_and_body(tmp_path):
+    client, _, _ = make_client(tmp_path, [httpx.Response(403, headers={"cf-mitigated": "challenge"}, text="Just a moment...")])
+    with pytest.raises(AuthError) as ei:
+        client.request("GET", URL)
+    assert ei.value.headers["cf-mitigated"] == "challenge"
+    assert "Just a moment" in ei.value.body
