@@ -12,6 +12,7 @@ import hashlib
 import json
 import os
 import sys
+import time
 import urllib.robotparser
 from datetime import UTC, datetime
 from pathlib import Path
@@ -34,6 +35,7 @@ MAX_PLACES_REQUESTS = 10
 
 FIRECRAWL_URL = "https://api.firecrawl.dev/v2/scrape"
 MAX_FIRECRAWL_PAGES = 10
+FIRECRAWL_SPACING_S = 6.5  # free plan: 10 scrapes/min
 
 # (category, includedType, tile_id, (south, west, north, east), max_pages)
 OLD_TOWN = (54.6790, 25.2760, 54.6880, 25.2910)          # ~1 km, dense
@@ -213,6 +215,8 @@ def record_firecrawl(env: dict[str, str]) -> None:
             if not allowed:
                 log("robots_skip", url=c["url"], reason=why)
                 continue
+            if sent:
+                time.sleep(FIRECRAWL_SPACING_S)
             body = {"url": c["url"], "formats": ["markdown", "links"], "onlyMainContent": False}
             resp = fc.post(FIRECRAWL_URL, json=body)
             sent += 1
