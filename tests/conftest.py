@@ -23,3 +23,12 @@ def pytest_collection_modifyitems(config, items):
             item.add_marker(skip_live)
         if "recorded" in item.keywords and not recorded_available(RECORDED):
             item.add_marker(skip_recorded)
+
+
+@pytest.fixture
+def con(tmp_path):
+    from src.db import connect
+
+    c = connect(tmp_path / "sub" / "t.duckdb")
+    yield c
+    c.close()
