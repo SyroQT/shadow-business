@@ -1,4 +1,9 @@
-"""robots.txt checking per RFC 9309 (D9): 2xx parsed, 4xx allow all, 5xx/network = unreachable."""
+"""robots.txt checking per RFC 9309 (D9): 2xx parsed, 4xx allow all, 5xx/network = unreachable.
+
+R20: 429 (after the client's retries) is deliberately treated as unreachable, i.e. disallow,
+not as a 4xx allow-all. Rate limiting means the host is asking us to back off and we cannot
+read its rules; the conservative choice matches Google's handling of 429 as a server error.
+Bodies are decoded as utf-8-sig so a leading BOM does not corrupt the first directive."""
 from urllib.parse import urlsplit
 from urllib.robotparser import RobotFileParser
 
@@ -26,7 +31,7 @@ class RobotsChecker:
                 return rp
             return None
         if 200 <= resp.status < 300:
-            rp.parse(resp.text.splitlines())
+            rp.parse(resp.content.decode("utf-8-sig", errors="replace").splitlines())
         elif 400 <= resp.status < 500:
             rp.allow_all = True
         else:

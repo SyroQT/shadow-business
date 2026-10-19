@@ -244,3 +244,9 @@ def test_recorded_homepages(con):
 @pytest.mark.live
 def test_live_five_sites():
     pytest.skip("live: run manually with LIVE=1 (spends 5 Firecrawl credits)")
+
+
+def test_robots_bom_disallow_all():
+    body = "﻿User-agent: *\nDisallow: /\n".encode()
+    rc = RobotsChecker(client(lambda r: httpx.Response(200, content=body)), UA)
+    assert rc.allowed("https://a.lt/") == (False, None)
