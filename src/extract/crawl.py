@@ -191,7 +191,7 @@ def markdown_anchors(markdown: str, base_url: str | None = None) -> dict[str, st
 
 def select_legal_links(home_url: str, links: list[str], anchors: dict[str, str],
                        pattern: str, k: int = 2) -> list[str]:
-    """Up to k same-domain links whose path/anchor matches pattern; rekvizit > kontakt > rest."""
+    """Up to k same-domain links whose path/anchor matches pattern; rekvizit > kontakt/contact > rest."""
     try:
         home_norm = normalise_url(home_url)
         home_host = _bare_host(_split(home_url)[1])
@@ -214,7 +214,7 @@ def select_legal_links(home_url: str, links: list[str], anchors: dict[str, str],
         if not pat.search(text):
             continue
         seen.add(norm)
-        tier = 0 if re.search("rekvizit", text, re.I) else 1 if re.search("kontakt", text, re.I) else 2
+        tier = 0 if re.search("rekvizit", text, re.I) else 1 if re.search("kontakt|contact", text, re.I) else 2
         ranked.append((tier, i, norm))
     ranked.sort()
     return [u for _, _, u in ranked[:k]]

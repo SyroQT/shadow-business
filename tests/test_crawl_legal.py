@@ -22,6 +22,11 @@ def test_select_prefers_rekvizit_then_kontakt():
     assert sel(links) == ["https://a.lt/rekvizitai", "https://a.lt/kontaktai"]
 
 
+def test_contact_ranks_with_kontakt():
+    assert sel(["https://a.lt/about-us", "https://a.lt/contact"]) == [
+        "https://a.lt/contact", "https://a.lt/about-us"]
+
+
 def test_anchor_text_match():
     links = ["https://a.lt/kontaktai", "https://a.lt/p/12"]
     out = sel(links, {"https://a.lt/p/12": "Įmonės rekvizitai"})
