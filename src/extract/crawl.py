@@ -1,10 +1,19 @@
 """Firecrawl over raw_places URLs -> raw_web_pages."""
+import hashlib
 import re
 from dataclasses import dataclass
+from datetime import UTC, datetime
 from typing import Literal
 from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
-from src.settings import CrawlConfig
+from src.cache import ApiError, AuthError, SourceClient
+from src.db import insert_rows, step
+from src.extract.robots import RobotsChecker
+from src.settings import AppConfig, CrawlConfig
+
+__all__ = ["RobotsChecker"]
+
+FIRECRAWL_URL = "https://api.firecrawl.dev/v2/scrape"
 
 _DROP_KEYS = {"fbclid", "gclid", "yclid", "mc_cid", "mc_eid", "ref", "_ga"}
 _DEFAULT_PORTS = {"http": 80, "https": 443}
@@ -113,3 +122,96 @@ def targets(con, run_id: str, crawl_cfg: CrawlConfig) -> list[Target]:
         out.append(Target(min(urls, key=_prefer), sorted(pids), "crawl"))
     out.sort(key=lambda t: (t.cls, t.url, t.place_ids))
     return out
+
+
+@dataclass
+class PageResult:
+    final_url: str | None
+    http_status: int | None
+    markdown: str | None
+    links: list[str] | None
+    error: str | None
+    retrieved_at: datetime
+    from_cache: bool = False
+
+
+def scrape(client: SourceClient, url: str) -> PageResult:
+    """One Firecrawl scrape. ApiError and success:false become PageResult.error;
+    AuthError propagates."""
+    body = {"url": url, "formats": ["markdown", "links"], "onlyMainContent": False}
+    try:
+        resp = client.request("POST", FIRECRAWL_URL, json_body=body)
+    except ApiError as e:
+        return PageResult(None, None, None, None, f"ApiError {e}", datetime.now(UTC))
+    try:
+        payload = resp.json()
+        ok = payload.get("success") is True
+    except (ValueError, AttributeError):
+        payload, ok = {}, False
+    if not ok:
+        err = str(payload.get("error", "success=false")) if isinstance(payload, dict) else "bad json"
+        return PageResult(None, None, None, None, err, resp.fetched_at, resp.from_cache)
+    data = payload.get("data") or {}
+    meta = data.get("metadata") or {}
+    return PageResult(
+        meta.get("url") or url, meta.get("statusCode"), data.get("markdown"),
+        data.get("links"), None, resp.fetched_at, resp.from_cache)
+
+
+def page_rows(target: Target, role: str, requested_url: str | None,
+              result: PageResult | None, skip_reason: str | None) -> list[dict]:
+    """One homogeneous web_pages row per place_id of the target."""
+    md = result.markdown if result else None
+    sha = hashlib.sha256(md.encode("utf-8")).hexdigest() if md is not None else None
+    links = result.links if result and role == "home" else None
+    return [{
+        "retrieved_at": result.retrieved_at if result else datetime.now(UTC),
+        "place_id": pid, "page_role": role, "requested_url": requested_url or None,
+        "final_url": result.final_url if result else None,
+        "http_status": result.http_status if result else None,
+        "skip_reason": skip_reason, "markdown": md, "links": links, "content_sha256": sha,
+    } for pid in target.place_ids]
+
+
+def run_crawl(con, fc_client: SourceClient, robots_client: SourceClient, config: AppConfig,
+              run, max_pages: int):
+    """Scrape each target's homepage. max_pages caps Firecrawl network sends (cache hits free)."""
+    with step(con, run, "crawl") as stats:
+        checker = RobotsChecker(robots_client, config.crawl.user_agent)
+        pages_sent = 0
+        capped = False
+        unreachable = 0
+        try:
+            for t in targets(con, run.run_id, config.crawl):
+                if t.cls != "crawl":
+                    insert_rows(con, "web_pages",
+                                page_rows(t, "home", t.url, None, t.cls), run)
+                    continue
+                if pages_sent >= max_pages:  # the single cap check; extend for legal pages here
+                    capped = True
+                    insert_rows(con, "web_pages", page_rows(t, "home", t.url, None, "capped"), run)
+                    continue
+                ok, why = checker.allowed(t.url)
+                if not ok:
+                    unreachable += why == "robots_unreachable"
+                    insert_rows(con, "web_pages",
+                                page_rows(t, "home", t.url, None, "robots_disallow"), run)
+                    continue
+                res = scrape(fc_client, t.url)
+                if not res.from_cache:
+                    pages_sent += 1
+                if res.error:
+                    stats.items_failed += 1
+                    insert_rows(con, "web_pages", page_rows(t, "home", t.url, None, "error"), run)
+                    continue
+                stats.items_ok += 1
+                insert_rows(con, "web_pages", page_rows(t, "home", t.url, res, None), run)
+        finally:
+            stats.api_requests = fc_client.api_requests + robots_client.api_requests
+            stats.cache_hits = fc_client.cache_hits + robots_client.cache_hits
+        if unreachable:
+            stats.notes.append(f"robots_unreachable={unreachable}")
+        if capped:
+            stats.status = "capped"
+            stats.notes.append(f"firecrawl_pages_cap={max_pages}")
+    return stats
