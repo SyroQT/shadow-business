@@ -8,3 +8,6 @@ dist/
 wheels/
 *.egg-info
 .venv
+fixtures/*
+# Live API recordings (Google ToS: no long-term storage of Places content)
+tests/fixtures/recorded/
