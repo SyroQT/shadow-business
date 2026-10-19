@@ -67,6 +67,8 @@ def connect(path: Path) -> duckdb.DuckDBPyConnection:
 
 
 def _val(v):
+    if isinstance(v, datetime) and v.tzinfo is not None:
+        return v.astimezone(UTC).replace(tzinfo=None)
     return json.dumps(v) if isinstance(v, (dict, list)) else v
 
 

@@ -12,7 +12,7 @@ def live_enabled(env: Mapping[str, str]) -> bool:
 
 
 def recorded_available(path: Path) -> bool:
-    return path.is_dir() and any(path.glob("*.json"))
+    return path.is_dir() and any(path.rglob("*.json"))
 
 
 def pytest_collection_modifyitems(config, items):

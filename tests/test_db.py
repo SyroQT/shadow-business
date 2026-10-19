@@ -94,3 +94,12 @@ def test_step_ok_partial_and_capped(con):
 def test_sodra_leading_zero_kept(con):
     insert_rows(con, "sodra", [{"code": "0012", "jarCode": "00034"}], RUN)
     assert con.execute('select code, "jarCode" from raw.sodra').fetchone() == ("0012", "00034")
+
+
+def test_insert_rows_normalises_tz_aware_per_row_retrieved_at(con):
+    from datetime import UTC, datetime, timedelta, timezone
+
+    aware = datetime(2026, 10, 19, 14, 0, tzinfo=timezone(timedelta(hours=3)))
+    insert_rows(con, "places", [{"place_id": "p", "payload": {}, "retrieved_at": aware}], RUN)
+    got = con.execute("select retrieved_at from raw.places").fetchone()[0]
+    assert got == aware.astimezone(UTC).replace(tzinfo=None)

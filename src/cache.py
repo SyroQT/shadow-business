@@ -178,7 +178,8 @@ class SourceClient:
         return wait_exponential_jitter(initial=1, max=20)(state)
 
     def request(self, method: str, url: str, json_body: dict | None = None,
-                use_cache: bool = True) -> CachedResponse:
+                use_cache: bool = True, headers: dict | None = None) -> CachedResponse:
+        """`headers` are merged over the client headers; never part of the cache key."""
         key = request_hash(method, url, json_body)
         if use_cache and self.cache is not None:
             hit = self.cache.get(key)
@@ -196,24 +197,24 @@ class SourceClient:
         with httpx.Client(transport=self.transport, timeout=self.timeout, headers=self.headers,
                           follow_redirects=self.follow_redirects) as http:
             try:
-                resp = retrying(self._attempt, http, method, url, json_body)
+                resp = retrying(self._attempt, http, method, url, json_body, headers)
             except _Retryable as e:
                 raise ApiError(e.status, e.message) from None
             except httpx.HTTPError as e:
                 raise ApiError(None, _short(f"{type(e).__name__}: {e}")) from None
 
         fetched_at = datetime.now(UTC)
-        headers = dict(resp.headers)
+        resp_headers = dict(resp.headers)
         if self.cache is not None:
-            self.cache.put(key, resp.status_code, headers, resp.content, fetched_at)
-        return CachedResponse(resp.status_code, headers, resp.content, fetched_at, False)
+            self.cache.put(key, resp.status_code, resp_headers, resp.content, fetched_at)
+        return CachedResponse(resp.status_code, resp_headers, resp.content, fetched_at, False)
 
-    def _attempt(self, http: httpx.Client, method, url, json_body) -> httpx.Response:
+    def _attempt(self, http: httpx.Client, method, url, json_body, headers=None) -> httpx.Response:
         if self.max_requests is not None and self.api_requests >= self.max_requests:
             raise CapReached(f"{self.source}: {self.max_requests} requests reached")
         self.limiter.acquire()
         self.api_requests += 1
-        resp = http.request(method, url, json=json_body)
+        resp = http.request(method, url, json=json_body, headers=headers)
         status = resp.status_code
         if 200 <= status < 300:
             return resp

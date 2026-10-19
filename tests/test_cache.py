@@ -256,3 +256,13 @@ def test_auth_error_carries_headers_and_body(tmp_path):
         client.request("GET", URL)
     assert ei.value.headers["cf-mitigated"] == "challenge"
     assert "Just a moment" in ei.value.body
+
+
+def test_per_request_headers_merged_and_not_hashed(tmp_path):
+    client, calls, _ = make_client(tmp_path, [ok()])
+    client.request("POST", URL, {"a": 1}, headers={"X-Goog-FieldMask": "places.id"})
+    assert calls[0].headers["X-Goog-FieldMask"] == "places.id"
+    assert calls[0].headers["X-Goog-Api-Key"] == KEY
+    # same body, different headers -> cache hit
+    r = client.request("POST", URL, {"a": 1}, headers={"X-Goog-FieldMask": "other"})
+    assert r.from_cache and len(calls) == 1
