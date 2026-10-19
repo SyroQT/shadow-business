@@ -21,7 +21,7 @@ def cfg() -> AppConfig:
         "area": {"name": "t", "bbox": {"south": 0, "west": 0, "north": 1, "east": 1},
                  "tile_km": 1.0, "min_tile_km": 0.5},
         "categories": {"cafe": {"places_included_type": ["cafe"], "evrk_prefixes": []}},
-        "crawl": {"user_agent": UA, "social_domains": ["facebook.com"], "legal_link_pattern": "x"},
+        "crawl": {"user_agent": UA, "social_domains": ["facebook.com"], "legal_link_pattern": "zzzz"},
     })
 
 

@@ -1,14 +1,16 @@
 """Firecrawl over raw_places URLs -> raw_web_pages."""
 import hashlib
 import re
+from collections import Counter
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import Literal
-from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
+from urllib.parse import parse_qsl, urlencode, urljoin, urlsplit, urlunsplit
 
 from src.cache import ApiError, AuthError, SourceClient
 from src.db import insert_rows, step
 from src.extract.robots import RobotsChecker
+from src.log import log
 from src.settings import AppConfig, CrawlConfig
 
 __all__ = ["RobotsChecker"]
@@ -133,6 +135,7 @@ class PageResult:
     error: str | None
     retrieved_at: datetime
     from_cache: bool = False
+    error_status: int | None = None
 
 
 def scrape(client: SourceClient, url: str) -> PageResult:
@@ -142,7 +145,8 @@ def scrape(client: SourceClient, url: str) -> PageResult:
     try:
         resp = client.request("POST", FIRECRAWL_URL, json_body=body)
     except ApiError as e:
-        return PageResult(None, None, None, None, f"ApiError {e}", datetime.now(UTC))
+        return PageResult(None, None, None, None, f"ApiError {e}", datetime.now(UTC),
+                          error_status=e.status)
     try:
         payload = resp.json()
         ok = payload.get("success") is True
@@ -173,22 +177,85 @@ def page_rows(target: Target, role: str, requested_url: str | None,
     } for pid in target.place_ids]
 
 
+_ANCHOR = re.compile(r'\[([^\]]*)\]\((\S+?)(?:\s+"[^"]*")?\)')
+
+
+def markdown_anchors(markdown: str, base_url: str | None = None) -> dict[str, str]:
+    """Absolute URL -> anchor text; relative URLs resolve against base_url; first wins."""
+    out: dict[str, str] = {}
+    for text, href in _ANCHOR.findall(markdown or ""):
+        url = urljoin(base_url, href) if base_url else href
+        out.setdefault(url, text.strip())
+    return out
+
+
+def select_legal_links(home_url: str, links: list[str], anchors: dict[str, str],
+                       pattern: str, k: int = 2) -> list[str]:
+    """Up to k same-domain links whose path/anchor matches pattern; rekvizit > kontakt > rest."""
+    try:
+        home_norm = normalise_url(home_url)
+        home_host = _bare_host(_split(home_url)[1])
+    except ValueError:
+        return []
+    pat = re.compile(pattern, re.I)
+    seen: set[str] = set()
+    ranked: list[tuple[int, int, str]] = []
+    for i, link in enumerate(links or []):
+        try:
+            absolute = urljoin(home_url, link)
+            norm = normalise_url(absolute)
+            host = _bare_host(_split(norm)[1])
+        except ValueError:
+            continue
+        if host != home_host or norm == home_norm or norm in seen:
+            continue
+        text = urlsplit(norm).path + " " + (
+            anchors.get(link) or anchors.get(absolute) or anchors.get(norm) or "")
+        if not pat.search(text):
+            continue
+        seen.add(norm)
+        tier = 0 if re.search("rekvizit", text, re.I) else 1 if re.search("kontakt", text, re.I) else 2
+        ranked.append((tier, i, norm))
+    ranked.sort()
+    return [u for _, _, u in ranked[:k]]
+
+
 def run_crawl(con, fc_client: SourceClient, robots_client: SourceClient, config: AppConfig,
               run, max_pages: int):
-    """Scrape each target's homepage. max_pages caps Firecrawl network sends (cache hits free)."""
+    """Scrape each target's homepage, then its legal candidates (depth-first per site).
+    max_pages caps Firecrawl network sends (cache hits free); a 402 acts like the cap."""
     with step(con, run, "crawl") as stats:
         checker = RobotsChecker(robots_client, config.crawl.user_agent)
         pages_sent = 0
-        capped = False
+        stop: str | None = None  # None | "cap" | "402"
         unreachable = 0
+        errors: Counter[str] = Counter()
+
+        def fetch(url: str) -> PageResult:
+            """Scrape url, count sends, record error stats. Sets stop on 402."""
+            nonlocal pages_sent, stop
+            res = scrape(fc_client, url)
+            if not res.from_cache:
+                pages_sent += 1
+            if res.error_status == 402:
+                stop = "402"
+            elif res.error:
+                stats.items_failed += 1
+                errors[str(res.error_status) if res.error_status
+                       else res.error[:40]] += 1
+                log("crawl_page_error", step="crawl", run_id=run.run_id, url=url,
+                    http_status=res.error_status, message=res.error[:200])
+            return res
+
         try:
             for t in targets(con, run.run_id, config.crawl):
                 if t.cls != "crawl":
                     insert_rows(con, "web_pages",
                                 page_rows(t, "home", t.url, None, t.cls), run)
                     continue
-                if pages_sent >= max_pages:  # the single cap check; extend for legal pages here
-                    capped = True
+                if stop is None and pages_sent >= max_pages:
+                    stop = "cap"
+                if stop:
                     insert_rows(con, "web_pages", page_rows(t, "home", t.url, None, "capped"), run)
                     continue
                 ok, why = checker.allowed(t.url)
@@ -197,21 +264,48 @@ def run_crawl(con, fc_client: SourceClient, robots_client: SourceClient, config:
                     insert_rows(con, "web_pages",
                                 page_rows(t, "home", t.url, None, "robots_disallow"), run)
                     continue
-                res = scrape(fc_client, t.url)
-                if not res.from_cache:
-                    pages_sent += 1
+                res = fetch(t.url)
+                if stop == "402":
+                    insert_rows(con, "web_pages", page_rows(t, "home", t.url, None, "capped"), run)
+                    continue
                 if res.error:
-                    stats.items_failed += 1
                     insert_rows(con, "web_pages", page_rows(t, "home", t.url, None, "error"), run)
                     continue
                 stats.items_ok += 1
                 insert_rows(con, "web_pages", page_rows(t, "home", t.url, res, None), run)
+
+                home_url = res.final_url or t.url
+                legal = select_legal_links(
+                    home_url, res.links or [], markdown_anchors(res.markdown or "", home_url),
+                    config.crawl.legal_link_pattern, config.crawl.max_legal_links)
+                for lurl in legal:
+                    if pages_sent >= max_pages:
+                        stop = "cap"
+                        break
+                    ok, why = checker.allowed(lurl)
+                    if not ok:
+                        unreachable += why == "robots_unreachable"
+                        insert_rows(con, "web_pages", page_rows(
+                            t, "legal_candidate", lurl, None, "robots_disallow"), run)
+                        continue
+                    lres = fetch(lurl)
+                    if stop == "402":
+                        break
+                    if lres.error:
+                        insert_rows(con, "web_pages", page_rows(
+                            t, "legal_candidate", lurl, None, "error"), run)
+                        continue
+                    insert_rows(con, "web_pages", page_rows(
+                        t, "legal_candidate", lurl, lres, None), run)
         finally:
             stats.api_requests = fc_client.api_requests + robots_client.api_requests
             stats.cache_hits = fc_client.cache_hits + robots_client.cache_hits
         if unreachable:
             stats.notes.append(f"robots_unreachable={unreachable}")
-        if capped:
+        if errors:
+            stats.notes.append(f"firecrawl_errors={sum(errors.values())}")
+            stats.notes.append(f"firecrawl_error_top={errors.most_common(1)[0][0]}")
+        if stop:
             stats.status = "capped"
-            stats.notes.append(f"firecrawl_pages_cap={max_pages}")
+            stats.notes.append("firecrawl_402" if stop == "402" else f"firecrawl_pages_cap={max_pages}")
     return stats
