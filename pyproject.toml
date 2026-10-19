@@ -29,4 +29,3 @@ markers = [
     "live: hits real APIs (needs LIVE=1)",
     "recorded: needs tests/fixtures/recorded/",
 ]
-addopts = "-m 'not live'"
