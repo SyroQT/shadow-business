@@ -1,17 +1,13 @@
 """Replay recorded API calls (tests/fixtures/recorded/) through httpx.MockTransport."""
 
-import hashlib
 import json
 from pathlib import Path
 
 import httpx
 
+from src.cache import request_hash
+
 RECORDED = Path(__file__).parent / "fixtures" / "recorded"
-
-
-def request_hash(method: str, url: str, body: dict | None) -> str:
-    canonical = json.dumps(body, sort_keys=True, separators=(",", ":"))
-    return hashlib.sha256(f"{method.upper()}\n{url}\n{canonical}".encode()).hexdigest()
 
 
 def load_recordings(*sources: str) -> dict[str, dict]:

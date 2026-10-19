@@ -8,7 +8,6 @@ keyed by request_hash (method + URL + canonical JSON body; headers and API keys
 are never stored). Replay them with tests/replay.py::replay_transport.
 """
 
-import hashlib
 import json
 import os
 import sys
@@ -21,6 +20,10 @@ from urllib.parse import urlsplit
 import httpx
 
 ROOT = Path(__file__).resolve().parent.parent
+sys.path.insert(0, str(ROOT))
+
+from src.cache import request_hash  # noqa: E402
+
 OUT = ROOT / "tests" / "fixtures" / "recorded"
 USER_AGENT = "LeadsResearchBot/0.1"
 
@@ -53,11 +56,6 @@ SOCIAL_DOMAINS = [
     "tiktok.com", "sites.google.com", "business.site", "g.page", "youtube.com",
     "linkedin.com", "booksy.com", "fresha.com", "treatwell.lt", "manobooking.lt", "page.link",
 ]
-
-
-def request_hash(method: str, url: str, body: dict | None) -> str:
-    canonical = json.dumps(body, sort_keys=True, separators=(",", ":"))
-    return hashlib.sha256(f"{method.upper()}\n{url}\n{canonical}".encode()).hexdigest()
 
 
 def load_env() -> dict[str, str]:
