@@ -89,6 +89,23 @@ def _run_for_id(run_id: str) -> RunContext:
     return RunContext(run_id, month, new_run(month).started_at)
 
 
+def _report(run_id: str | None) -> int:
+    from src.extract.report import latest_run_id, write_report
+    settings = load_settings()
+    con = connect(settings.db_path)
+    try:
+        if run_id is None:
+            month = new_run(settings.run_month).run_month
+            run_id = latest_run_id(con, month)
+            if run_id is None:
+                print(f"report: no run found for {month}; pass --run-id", file=sys.stderr)
+                return 2
+        print(write_report(con, run_id))
+        return 0
+    finally:
+        con.close()
+
+
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(prog="python -m src.extract")
     sub = ap.add_subparsers(dest="cmd", required=True)
@@ -99,12 +116,12 @@ def main(argv: list[str] | None = None) -> int:
     p_places.add_argument("--run-id")
     p_crawl = sub.add_parser("crawl", help="Firecrawl homepages and legal pages")
     p_crawl.add_argument("--run-id", help="default: latest places run for RUN_MONTH")
-    sub.add_parser("report", help="coverage report (Task 12)")
+    p_report = sub.add_parser("report", help="data-quality report from raw.* (offline)")
+    p_report.add_argument("--run-id", help="default: latest run for RUN_MONTH")
     args = ap.parse_args(argv)
 
     if args.cmd == "report":
-        print("report: not implemented yet")
-        return 2
+        return _report(args.run_id)
 
     if args.cmd == "sodra":
         from src.extract import sodra

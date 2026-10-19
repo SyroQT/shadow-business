@@ -98,11 +98,6 @@ def test_raising_step_does_not_stop_next(con, tmp_path, monkeypatch, capsys):
     assert '"event": "error"' in out and '"step": "sodra"' in out
 
 
-def test_report_stub_exits_2(capsys):
-    assert main(["report"]) == 2
-    assert "report: not implemented yet" in capsys.readouterr().out
-
-
 def test_crawl_without_places_run_exits_2(tmp_path, monkeypatch, capsys):
     from src.extract import __main__ as m
     from src.db import connect

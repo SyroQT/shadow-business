@@ -185,10 +185,13 @@ def _run_work(con, client, config, run, stats, names, work, roots) -> None:
             return
 
 
-def _note_int(notes: str | None, category: str, key: str) -> int:
+def note_int(notes: str | None, category: str, key: str) -> int:
     """Value of the `{category}:{key}=N` entry in run_log.notes (0 when absent)."""
     m = re.search(rf"(?:^|; ){re.escape(category)}:{re.escape(key)}=(\d+)", notes or "")
     return int(m.group(1)) if m else 0
+
+
+_note_int = note_int  # backwards-compatible alias
 
 
 def places_summary(con: duckdb.DuckDBPyConnection, run_id: str) -> list[dict]:
@@ -205,8 +208,8 @@ def places_summary(con: duckdb.DuckDBPyConnection, run_id: str) -> list[dict]:
     for c in cats:
         n, uniq, web = counts.get(c, (0, 0, 0))
         out.append({"category": c, "places": n, "unique_places": uniq, "with_website": web,
-                    "saturated_tiles": _note_int(notes, c, "saturated_tiles"),
-                    "coverage_gaps": _note_int(notes, c, "coverage_gaps")})
+                    "saturated_tiles": note_int(notes, c, "saturated_tiles"),
+                    "coverage_gaps": note_int(notes, c, "coverage_gaps")})
     return out
 
 
