@@ -1,3 +1,5 @@
+from pathlib import Path
+
 import httpx
 import pytest
 
@@ -103,7 +105,7 @@ def test_crawl_without_places_run_exits_2(tmp_path, monkeypatch, capsys):
     from src.db import connect
     settings = Settings(google_api_key="g", firecrawl_api_key="f", _env_file=None,
                         db_path=tmp_path / "x.duckdb", run_month="2026-10")
-    monkeypatch.setattr(m, "load_settings", lambda: settings)
+    monkeypatch.setattr(m, "load_settings_or_exit", lambda: settings)
     monkeypatch.setattr(m, "load_config", lambda p: config({"a": ["cafe"]}))
     assert main(["crawl"]) == 2
     assert "no places run" in capsys.readouterr().err
@@ -167,3 +169,47 @@ def test_e2e_recorded(con, tmp_path, monkeypatch):
     assert con.execute(
         "select count(*) from raw.web_pages where page_role='home' and markdown is null"
         " and skip_reason is null").fetchone()[0] == 0
+
+
+def test_all_missing_keys_record_failed_steps(con, tmp_path, monkeypatch):
+    settings, cfg, clients, _ = setup(tmp_path, monkeypatch)
+    settings = Settings(_env_file=None, sodra_file=settings.sodra_file, cache_dir=tmp_path / "c",
+                        config_path=Path(__file__).resolve().parent.parent / "config/categories.yaml")
+    keyless = {"sodra": clients["sodra"], "robots": clients["robots"]}
+    st = extract_all(settings, cfg, con, RUN, keyless, sodra_min_rows=10)
+    assert st == {"sodra": "ok", "places": "failed", "crawl": "failed"}
+    notes = dict(con.execute("select step, notes from raw.run_log").fetchall())
+    assert notes["places"] == "missing_setting=GOOGLE_API_KEY"
+    assert "upstream_places_failed" in notes["crawl"]
+
+
+def test_all_missing_firecrawl_key_fails_only_crawl(con, tmp_path, monkeypatch):
+    settings, cfg, clients, _ = setup(tmp_path, monkeypatch)
+    settings = Settings(_env_file=None, sodra_file=settings.sodra_file, cache_dir=tmp_path / "c",
+                        config_path=Path(__file__).resolve().parent.parent / "config/categories.yaml")
+    del clients["firecrawl"]
+    st = extract_all(settings, cfg, con, RUN, clients, sodra_min_rows=10)
+    assert st["places"] == "ok" and st["crawl"] == "failed"
+    note = con.execute("select notes from raw.run_log where step='crawl'").fetchone()[0]
+    assert note == "missing_setting=FIRECRAWL_API_KEY"
+
+
+def test_places_main_missing_key_exits_2(con, tmp_path, monkeypatch, capsys):
+    from src.extract import places
+    s = Settings(_env_file=None, cache_dir=tmp_path)
+    monkeypatch.setattr(places, "load_settings_or_exit", lambda: s)
+    code = places.main([], con=con, config=config({"a": ["cafe"]}))
+    assert code == 2 and "missing setting: GOOGLE_API_KEY" in capsys.readouterr().err
+
+
+def test_sodra_main_uses_run_month(tmp_path, monkeypatch, capsys):
+    from src.extract import sodra
+    s = Settings(_env_file=None, db_path=tmp_path / "x.duckdb", run_month="2026-03",
+                 cache_dir=tmp_path / "c", sodra_file=make_zip(tmp_path),
+                 config_path=Path(__file__).resolve().parent.parent / "config/categories.yaml")
+    monkeypatch.setattr(sodra, "load_settings_or_exit", lambda: s)
+    monkeypatch.chdir(tmp_path)
+    sodra.main()
+    import duckdb
+    con = duckdb.connect(str(s.db_path))
+    assert con.execute("select run_id, run_month from raw.run_log").fetchone()[0].startswith("2026-03_")

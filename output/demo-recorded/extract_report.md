@@ -1,8 +1,9 @@
 > Demo report generated from recorded fixtures (tests/fixtures/recorded/), not a live run.
+> Crawl rows for sites outside the 10 recorded homepages are synthetic "not recorded" errors, so the crawl share and error counts are not real coverage.
 
 # Extraction data-quality report
 
-Run: 2026-10_20261019T153029
+Run: 2026-10_20261019T154232
 
 ## Places per category
 
@@ -43,10 +44,11 @@ jarCode share: 80.0%
 
 ## Steps
 
-| step | status | api_requests | cache_hits | duration |
-|---|---|---|---|---|
-| sodra | ok | 0 | 0 | 0m 0s |
-| places | ok | 6 | 0 | 0m 0s |
-| crawl | partial | 150 | 0 | 0m 0s |
+| step | status | api_requests | cache_hits | duration | notes |
+|---|---|---|---|---|---|
+| sodra | ok | 0 | 0 | 0m 0s |  |
+| places | ok | 6 | 0 | 0m 0s | cafes_restaurants:saturated_tiles=1; cafes_restaurants:coverage_gaps=1 |
+| crawl | partial | 80 | 0 | 0m 0s | robots_requests=70; robots_cache_hits=0; firecrawl_errors=76; firecrawl_error_top=not recorded |
+| robots | - | 70 | 0 | - |  |
 
 Total duration: 0m 0s

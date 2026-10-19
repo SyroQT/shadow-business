@@ -7,7 +7,7 @@ from datetime import UTC, datetime
 from typing import Literal
 from urllib.parse import parse_qsl, urlencode, urljoin, urlsplit, urlunsplit
 
-from src.cache import ApiError, AuthError, SourceClient
+from src.cache import ApiError, AuthError, CapReached, SourceClient
 from src.db import insert_rows, step
 from src.extract.robots import RobotsChecker
 from src.log import log
@@ -139,14 +139,19 @@ class PageResult:
 
 
 def scrape(client: SourceClient, url: str) -> PageResult:
-    """One Firecrawl scrape. ApiError and success:false become PageResult.error;
-    AuthError propagates."""
+    """One Firecrawl scrape. ApiError, success:false and HTTP 403 (R23: UNSUPPORTED_SITE,
+    a per-URL answer) become PageResult.error; a 401 AuthError and CapReached propagate."""
     body = {"url": url, "formats": ["markdown", "links"], "onlyMainContent": False}
     try:
         resp = client.request("POST", FIRECRAWL_URL, json_body=body)
     except ApiError as e:
         return PageResult(None, None, None, None, f"ApiError {e}", datetime.now(UTC),
                           error_status=e.status)
+    except AuthError as e:
+        if e.status != 403:
+            raise
+        return PageResult(None, None, None, None, f"HTTP 403: {e.body[:150]}",
+                          datetime.now(UTC), error_status=403)
     try:
         payload = resp.json()
         ok = payload.get("success") is True
@@ -223,20 +228,30 @@ def select_legal_links(home_url: str, links: list[str], anchors: dict[str, str],
 def run_crawl(con, fc_client: SourceClient, robots_client: SourceClient, config: AppConfig,
               run, max_pages: int):
     """Scrape each target's homepage, then its legal candidates (depth-first per site).
-    max_pages caps Firecrawl network sends (cache hits free); a 402 acts like the cap."""
+    max_pages caps Firecrawl network attempts, retries included (cache hits free);
+    a 402 acts like the cap."""
     with step(con, run, "crawl") as stats:
         checker = RobotsChecker(robots_client, config.crawl.user_agent)
-        pages_sent = 0
+        start_requests = fc_client.api_requests
+        saved_max = fc_client.max_requests
+        fc_client.max_requests = start_requests + max_pages  # retries cannot overshoot
+        cache_start = fc_client.cache_hits
+        robots_start = (robots_client.api_requests, robots_client.cache_hits)
         stop: str | None = None  # None | "cap" | "402"
         unreachable = 0
         errors: Counter[str] = Counter()
 
+        def sent() -> int:
+            return fc_client.api_requests - start_requests
+
         def fetch(url: str) -> PageResult:
             """Scrape url, count sends, record error stats. Sets stop on 402."""
-            nonlocal pages_sent, stop
-            res = scrape(fc_client, url)
-            if not res.from_cache:
-                pages_sent += 1
+            nonlocal stop
+            try:
+                res = scrape(fc_client, url)
+            except CapReached:
+                stop = "cap"
+                return PageResult(None, None, None, None, "cap reached", datetime.now(UTC))
             if res.error_status == 402:
                 stop = "402"
             elif res.error:
@@ -253,7 +268,7 @@ def run_crawl(con, fc_client: SourceClient, robots_client: SourceClient, config:
                     insert_rows(con, "web_pages",
                                 page_rows(t, "home", t.url, None, t.cls), run)
                     continue
-                if stop is None and pages_sent >= max_pages:
+                if stop is None and sent() >= max_pages:
                     stop = "cap"
                 if stop:
                     insert_rows(con, "web_pages", page_rows(t, "home", t.url, None, "capped"), run)
@@ -265,7 +280,7 @@ def run_crawl(con, fc_client: SourceClient, robots_client: SourceClient, config:
                                 page_rows(t, "home", t.url, None, "robots_disallow"), run)
                     continue
                 res = fetch(t.url)
-                if stop == "402":
+                if stop:
                     insert_rows(con, "web_pages", page_rows(t, "home", t.url, None, "capped"), run)
                     continue
                 if res.error:
@@ -279,7 +294,7 @@ def run_crawl(con, fc_client: SourceClient, robots_client: SourceClient, config:
                     home_url, res.links or [], markdown_anchors(res.markdown or "", home_url),
                     config.crawl.legal_link_pattern, config.crawl.max_legal_links)
                 for lurl in legal:
-                    if pages_sent >= max_pages:
+                    if sent() >= max_pages:
                         stop = "cap"
                         break
                     ok, why = checker.allowed(lurl)
@@ -289,7 +304,7 @@ def run_crawl(con, fc_client: SourceClient, robots_client: SourceClient, config:
                             t, "legal_candidate", lurl, None, "robots_disallow"), run)
                         continue
                     lres = fetch(lurl)
-                    if stop == "402":
+                    if stop:
                         break
                     if lres.error:
                         insert_rows(con, "web_pages", page_rows(
@@ -298,8 +313,11 @@ def run_crawl(con, fc_client: SourceClient, robots_client: SourceClient, config:
                     insert_rows(con, "web_pages", page_rows(
                         t, "legal_candidate", lurl, lres, None), run)
         finally:
-            stats.api_requests = fc_client.api_requests + robots_client.api_requests
-            stats.cache_hits = fc_client.cache_hits + robots_client.cache_hits
+            fc_client.max_requests = saved_max
+            stats.api_requests = sent()
+            stats.cache_hits = fc_client.cache_hits - cache_start
+            stats.notes.append(f"robots_requests={robots_client.api_requests - robots_start[0]}")
+            stats.notes.append(f"robots_cache_hits={robots_client.cache_hits - robots_start[1]}")
         if unreachable:
             stats.notes.append(f"robots_unreachable={unreachable}")
         if errors:

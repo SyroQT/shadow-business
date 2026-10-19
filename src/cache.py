@@ -3,6 +3,7 @@ import base64
 import hashlib
 import json
 import time
+from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
@@ -29,11 +30,21 @@ class CapReached(Exception):
     """The per-source request budget is exhausted."""
 
 
+class MissingSetting(ValueError):
+    """A required setting (e.g. an API key) is not set."""
+
+    def __init__(self, name: str):
+        super().__init__(f"{name} is not set")
+        self.name = name
+
+
 class AuthError(Exception):
     """401/403 from the API. Response headers and a body snippet are kept for diagnosis."""
 
-    def __init__(self, message: str, headers: dict | None = None, body: str = ""):
+    def __init__(self, message: str, headers: dict | None = None, body: str = "",
+                 status: int | None = None):
         super().__init__(message)
+        self.status = status
         self.headers = headers or {}
         self.body = body
 
@@ -158,7 +169,9 @@ class SourceClient:
         timeout: float = 30,
         sleep=time.sleep,
         follow_redirects: bool = False,
+        cacheable: Callable[[httpx.Response], bool] | None = None,
     ):
+        self.cacheable = cacheable
         self.follow_redirects = follow_redirects
         self.source = source
         self.cache = cache
@@ -205,7 +218,7 @@ class SourceClient:
 
         fetched_at = datetime.now(UTC)
         resp_headers = dict(resp.headers)
-        if self.cache is not None:
+        if self.cache is not None and (self.cacheable is None or self.cacheable(resp)):
             self.cache.put(key, resp.status_code, resp_headers, resp.content, fetched_at)
         return CachedResponse(resp.status_code, resp_headers, resp.content, fetched_at, False)
 
@@ -219,7 +232,8 @@ class SourceClient:
         if 200 <= status < 300:
             return resp
         if status in (401, 403):
-            raise AuthError(f"{self.source}: HTTP {status}", dict(resp.headers), _short(resp.text))
+            raise AuthError(f"{self.source}: HTTP {status}", dict(resp.headers), _short(resp.text),
+                            status)
         if status == 429 or status >= 500:
             raise _Retryable(status, _short(resp.text), _retry_after(resp) if status == 429 else None)
         raise ApiError(status, _short(resp.text))
@@ -229,20 +243,42 @@ def _cache(settings: Settings, source: str, ttl: timedelta | None) -> DiskCache:
     return DiskCache(settings.cache_dir / source, ttl)
 
 
+def _key(secret, name: str) -> str:
+    if secret is None or not secret.get_secret_value():
+        raise MissingSetting(name)
+    return secret.get_secret_value()
+
+
+def _firecrawl_cacheable(resp: httpx.Response) -> bool:
+    """R27: a 200 body with success:false is a transient failure, never cached."""
+    try:
+        body = resp.json()
+    except ValueError:
+        return True
+    return not (isinstance(body, dict) and body.get("success") is False)
+
+
 def places_client(settings: Settings, **kw) -> SourceClient:
+    key = _key(settings.google_api_key, "GOOGLE_API_KEY")
     return SourceClient(
         "places", _cache(settings, "places", PLACES_TTL),
         TokenBucket(settings.places_rate_per_sec),
         settings.max_places_requests,
-        {"X-Goog-Api-Key": settings.google_api_key.get_secret_value()}, **kw)
+        {"X-Goog-Api-Key": key}, **kw)
+
+
+FIRECRAWL_TIMEOUT = 90  # server-side scrape timeout defaults to 30 s, up to 60 s
 
 
 def firecrawl_client(settings: Settings, **kw) -> SourceClient:
+    key = _key(settings.firecrawl_api_key, "FIRECRAWL_API_KEY")
+    kw.setdefault("timeout", FIRECRAWL_TIMEOUT)
+    kw.setdefault("cacheable", _firecrawl_cacheable)
     return SourceClient(
         "firecrawl", _cache(settings, "firecrawl", FIRECRAWL_TTL),
         TokenBucket(settings.firecrawl_rate_per_min / 60),
         None,
-        {"Authorization": f"Bearer {settings.firecrawl_api_key.get_secret_value()}"}, **kw)
+        {"Authorization": f"Bearer {key}"}, **kw)
 
 
 def _user_agent(settings: Settings) -> str:

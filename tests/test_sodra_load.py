@@ -1,3 +1,4 @@
+import json
 import zipfile
 from pathlib import Path
 
@@ -130,8 +131,13 @@ def test_duplicate_sha_skips_insert(con, tmp_path):
 
 def test_report_prints(con, tmp_path, capsys):
     go(con, tmp_path, make_zip(tmp_path))
-    out = capsys.readouterr().out
-    assert "rows: 20" in out and "202601: 10" in out and "202602: 10" in out and "OK" in out
+    lines = [json.loads(line) for line in capsys.readouterr().out.splitlines()]
+    ev = [r for r in lines if r["event"] == "sodra_validation"]
+    assert len(ev) == 1
+    assert ev[0]["rows"] == 20 and ev[0]["months"] == {"202601": 10, "202602": 10}
+    assert ev[0]["failures"] == [] and ev[0]["bad_num_insured"] == 0
+    assert ev[0]["jar9_share"] == 1.0
+    assert not any("Sodra validation report" in line for line in capsys.readouterr().out.splitlines())
 
 
 def test_temp_dir_removed(con, tmp_path, monkeypatch):

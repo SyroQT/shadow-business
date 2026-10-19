@@ -16,7 +16,7 @@ from src.cache import ApiError, AuthError, SourceClient, sodra_client
 from src.db import StepStats, connect, step
 from src.log import log
 from src.run import RunContext, new_run
-from src.settings import Settings, load_settings
+from src.settings import Settings, load_settings_or_exit
 
 ZIP_MAGIC = b"PK\x03\x04"
 BLOCKED_MESSAGE = (
@@ -156,22 +156,6 @@ class ValidationReport:
     def ok(self) -> bool:
         return not self.failures
 
-    def to_text(self) -> str:
-        lines = [
-            "Sodra validation report",
-            f"rows: {self.rows}",
-            f"months: {len(self.months)}",
-        ]
-        lines += [f"  {m}: {n}" for m, n in sorted(self.months.items())]
-        lines += [
-            f"missing columns: {self.missing_columns or 'none'}",
-            f"jarCode 9-digit share: {self.jar9_share:.4f}",
-            f"non-integer numInsured: {self.bad_num_insured}",
-        ]
-        lines.append("status: OK" if self.ok else "status: FAILED")
-        lines += [f"  - {f}" for f in self.failures]
-        return "\n".join(lines)
-
 
 def _month_index(m: str) -> int:
     return int(m[:4]) * 12 + int(m[4:]) - 1
@@ -270,7 +254,9 @@ def run_sodra(con: duckdb.DuckDBPyConnection, settings: Settings, client: Source
                 csv_path = _extract_csv(zip_path, Path(tmp))
                 _load_staging(con, csv_path, Path(tmp))
             report = validate(con, "sodra_staging", min_rows_per_month)
-            print(report.to_text())
+            log("sodra_validation", step="sodra", run_id=run.run_id, rows=report.rows,
+                months=dict(sorted(report.months.items())), jar9_share=report.jar9_share,
+                bad_num_insured=report.bad_num_insured, failures=report.failures)
             if not report.ok:
                 raise ValueError("; ".join(report.failures))
             cols = ", ".join(f'"{c}"' for c in EXPECTED_COLUMNS)
@@ -296,8 +282,8 @@ def run_sodra(con: duckdb.DuckDBPyConnection, settings: Settings, client: Source
 
 
 def main() -> int:
-    settings = load_settings()
-    run = new_run()
+    settings = load_settings_or_exit()
+    run = new_run(settings.run_month)
     con = connect(settings.db_path)
     try:
         client = sodra_client(settings)

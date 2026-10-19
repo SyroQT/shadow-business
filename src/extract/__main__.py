@@ -4,14 +4,16 @@ import sys
 
 import duckdb
 
-from src.cache import SourceClient, firecrawl_client, places_client, robots_client, sodra_client
+from src.cache import (
+    MissingSetting, SourceClient, firecrawl_client, places_client, robots_client, sodra_client,
+)
 from src.db import connect, step
 from src.extract.crawl import run_crawl
 from src.extract.places import run_places
 from src.extract.sodra import run_sodra
 from src.log import log
 from src.run import RunContext, new_run
-from src.settings import AppConfig, Settings, load_config, load_settings
+from src.settings import AppConfig, Settings, load_config, load_settings_or_exit
 
 STEPS = ("sodra", "places", "crawl")
 
@@ -33,16 +35,18 @@ def _guarded(name: str, run: RunContext, fn) -> None:
             message=str(exc)[:200])
 
 
-def build_clients(settings: Settings, names: tuple[str, ...] = STEPS) -> dict[str, SourceClient]:
-    out: dict[str, SourceClient] = {}
-    if "sodra" in names:
-        out["sodra"] = sodra_client(settings)
-    if "places" in names:
-        out["places"] = places_client(settings)
-    if "crawl" in names:
-        out["firecrawl"] = firecrawl_client(settings)
-        out["robots"] = robots_client(settings)
-    return out
+def build_clients(settings: Settings) -> dict[str, SourceClient]:
+    """Keyless clients only; the keyed ones (places, firecrawl) are built when their step runs."""
+    return {"sodra": sodra_client(settings), "robots": robots_client(settings)}
+
+
+def _missing_setting(con, run: RunContext, name: str, setting: str) -> None:
+    """R26: record the step as failed through step() with note missing_setting=<NAME>."""
+    with step(con, run, name) as stats:
+        stats.status = "failed"
+        stats.notes.append(f"missing_setting={setting}")
+    log("error", step=name, run_id=run.run_id, error="MissingSetting",
+        message=f"{setting} is not set")
 
 
 def _warn(statuses: dict[str, str], run: RunContext) -> None:
@@ -51,13 +55,29 @@ def _warn(statuses: dict[str, str], run: RunContext) -> None:
             log("warning", step=name, run_id=run.run_id, message=f"step finished {status}")
 
 
+def _crawl(settings, config, con, run, clients) -> None:
+    try:
+        firecrawl = clients.get("firecrawl") or firecrawl_client(settings)
+    except MissingSetting as e:
+        _missing_setting(con, run, "crawl", e.name)
+        return
+    robots = clients.get("robots") or robots_client(settings)
+    _guarded("crawl", run, lambda: run_crawl(
+        con, firecrawl, robots, config, run, settings.max_firecrawl_pages))
+
+
 def extract_all(settings: Settings, config: AppConfig, con: duckdb.DuckDBPyConnection,
                 run: RunContext, clients: dict[str, SourceClient], *,
                 sodra_min_rows: int = 50_000) -> dict[str, str]:
     """sodra -> places -> crawl under one run_id; returns step -> status from raw.run_log."""
     _guarded("sodra", run, lambda: run_sodra(
         con, settings, clients.get("sodra"), run, min_rows_per_month=sodra_min_rows))
-    _guarded("places", run, lambda: run_places(con, clients["places"], config, run))
+    try:
+        places = clients.get("places") or places_client(settings)
+    except MissingSetting as e:
+        _missing_setting(con, run, "places", e.name)
+    else:
+        _guarded("places", run, lambda: run_places(con, places, config, run))
     if _status(con, run.run_id, "places") == "failed":
         with step(con, run, "crawl") as stats:
             stats.status = "failed"
@@ -65,9 +85,7 @@ def extract_all(settings: Settings, config: AppConfig, con: duckdb.DuckDBPyConne
         log("error", step="crawl", run_id=run.run_id, error="UpstreamFailed",
             message="upstream_places_failed")
     else:
-        _guarded("crawl", run, lambda: run_crawl(
-            con, clients["firecrawl"], clients["robots"], config, run,
-            settings.max_firecrawl_pages))
+        _crawl(settings, config, con, run, clients)
     statuses = {name: _status(con, run.run_id, name) for name in STEPS}
     _warn(statuses, run)
     return statuses
@@ -91,9 +109,13 @@ def _run_for_id(run_id: str) -> RunContext:
 
 def _report(run_id: str | None) -> int:
     from src.extract.report import latest_run_id, write_report
-    settings = load_settings()
+    settings = load_settings_or_exit()
     con = connect(settings.db_path)
     try:
+        if run_id is not None and con.execute(
+                "select 1 from raw.run_log where run_id = ? limit 1", [run_id]).fetchone() is None:
+            print(f"report: unknown run id {run_id}", file=sys.stderr)
+            return 2
         if run_id is None:
             month = new_run(settings.run_month).run_month
             run_id = latest_run_id(con, month)
@@ -133,7 +155,7 @@ def main(argv: list[str] | None = None) -> int:
             fwd += ["--run-id", args.run_id]
         return places.main(fwd)
 
-    settings = load_settings()
+    settings = load_settings_or_exit()
     config = load_config(settings.config_path)
     con = connect(settings.db_path)
     try:
@@ -153,10 +175,7 @@ def main(argv: list[str] | None = None) -> int:
                       file=sys.stderr)
                 return 2
             run = _run_for_id(run_id)
-        clients = build_clients(settings, ("crawl",))
-        _guarded("crawl", run, lambda: run_crawl(
-            con, clients["firecrawl"], clients["robots"], config, run,
-            settings.max_firecrawl_pages))
+        _crawl(settings, config, con, run, {})
         statuses = {"crawl": _status(con, run.run_id, "crawl")}
         _warn(statuses, run)
         return _exit_code(statuses)

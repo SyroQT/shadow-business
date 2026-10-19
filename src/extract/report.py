@@ -105,17 +105,35 @@ def _sodra_section(con, run_id: str) -> list[str]:
     return out
 
 
+def _note(notes: str | None, key: str) -> int | None:
+    m = re.search(rf"(?:^|; ){re.escape(key)}=(\d+)", notes or "")
+    return int(m.group(1)) if m else None
+
+
+def _cell(notes: str | None) -> str:
+    """Notes truncated to 120 characters, then `|` escaped so the cut never splits an escape."""
+    text = (notes or "").replace("\n", " ")
+    if len(text) > 120:
+        text = text[:117] + "..."
+    return text.replace("|", "\\|")
+
+
 def _steps_section(con, run_id: str) -> list[str]:
     rows = con.execute(
         "select step, status, api_requests, cache_hits,"
-        " date_diff('millisecond', started_at, finished_at) / 1000.0 from raw.run_log"
+        " date_diff('millisecond', started_at, finished_at) / 1000.0, notes from raw.run_log"
         " where run_id = ? order by started_at, step", [run_id]).fetchall()
     total = con.execute(
         "select date_diff('millisecond', min(started_at), max(finished_at)) / 1000.0"
         " from raw.run_log where run_id = ?", [run_id]).fetchone()[0]
+    table = []
+    for s, st, a, c, d, n in rows:
+        table.append([s, st, a, c, _dur(d), _cell(n)])
+        if s == "crawl" and _note(n, "robots_requests") is not None:
+            table.append(["robots", "-", _note(n, "robots_requests"),
+                          _note(n, "robots_cache_hits") or 0, "-", ""])
     out = ["## Steps", ""]
-    out += _table(["step", "status", "api_requests", "cache_hits", "duration"],
-                  [[s, st, a, c, _dur(d)] for s, st, a, c, d in rows])
+    out += _table(["step", "status", "api_requests", "cache_hits", "duration", "notes"], table)
     return out + ["", f"Total duration: {_dur(total)}"]
 
 

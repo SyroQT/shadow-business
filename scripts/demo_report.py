@@ -25,7 +25,9 @@ from tests.test_places import config  # noqa: E402
 from tests.test_sodra_load import make_zip  # noqa: E402
 
 BANNER = ("> Demo report generated from recorded fixtures (tests/fixtures/recorded/), "
-          "not a live run.")
+          "not a live run.\n"
+          "> Crawl rows for sites outside the 10 recorded homepages are synthetic "
+          "\"not recorded\" errors, so the crawl share and error counts are not real coverage.")
 
 
 def rc(source, transport, **kw):

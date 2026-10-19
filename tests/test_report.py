@@ -118,7 +118,7 @@ def test_cli_report(con, tmp_path, monkeypatch, capsys):
     monkeypatch.chdir(tmp_path)
     s = Settings(google_api_key="g", firecrawl_api_key="f", _env_file=None,
                  db_path=tmp_path / "sub" / "t.duckdb", run_month="2026-10")
-    monkeypatch.setattr(m, "load_settings", lambda: s)
+    monkeypatch.setattr(m, "load_settings_or_exit", lambda: s)
     assert main(["report"]) == 0
     assert (tmp_path / "output" / "2026-10" / "extract_report.md").exists()
     assert "extract_report.md" in capsys.readouterr().out
@@ -130,6 +130,49 @@ def test_cli_report_no_run(tmp_path, monkeypatch, capsys):
     from src.settings import Settings
     s = Settings(google_api_key="g", firecrawl_api_key="f", _env_file=None,
                  db_path=tmp_path / "x.duckdb", run_month="2026-10")
-    monkeypatch.setattr(m, "load_settings", lambda: s)
+    monkeypatch.setattr(m, "load_settings_or_exit", lambda: s)
     assert main(["report"]) == 2
     assert "no run" in capsys.readouterr().err
+
+
+def test_cli_report_unknown_run_id(con, tmp_path, monkeypatch, capsys):
+    from src.extract import __main__ as m
+    from src.settings import Settings
+    fill(con)
+    con.close()
+    s = Settings(_env_file=None, db_path=tmp_path / "sub" / "t.duckdb", run_month="2026-10")
+    monkeypatch.setattr(m, "load_settings_or_exit", lambda: s)
+    assert main(["report", "--run-id", "2026-10_19990101T000000"]) == 2
+    assert "unknown run id" in capsys.readouterr().err
+
+
+def test_report_works_without_keys(con, tmp_path, monkeypatch):
+    from src.extract import __main__ as m
+    from src.settings import Settings
+    fill(con)
+    con.close()
+    monkeypatch.chdir(tmp_path)
+    s = Settings(_env_file=None, db_path=tmp_path / "sub" / "t.duckdb", run_month="2026-10")
+    monkeypatch.setattr(m, "load_settings_or_exit", lambda: s)
+    assert main(["report"]) == 0
+
+
+def test_steps_table_has_truncated_escaped_notes_and_robots_row(con):
+    from src.db import insert_rows
+    insert_rows(con, "run_log", [{
+        "run_month": "2026-10", "step": "zzz", "started_at": "2026-10-19 12:00:00",
+        "finished_at": "2026-10-19 12:00:05", "status": "ok", "items_ok": 0, "items_failed": 0,
+        "api_requests": 0, "cache_hits": 0,
+        "notes": "a|b " + "x" * 200 + "; robots_requests=4; robots_cache_hits=2"}], RUN)
+    out = build_report(con, RUN.run_id)
+    assert "| notes |" in out
+    line = [ln for ln in out.splitlines() if ln.startswith("| zzz ")][0]
+    assert "a\\|b " in line and line.rstrip().endswith("... |")
+    assert len(line.split(" | ")[-1]) <= 125
+    insert_rows(con, "run_log", [{
+        "run_month": "2026-10", "step": "crawl", "started_at": "2026-10-19 12:01:00",
+        "finished_at": "2026-10-19 12:01:05", "status": "ok", "items_ok": 0, "items_failed": 0,
+        "api_requests": 3, "cache_hits": 1,
+        "notes": "robots_requests=4; robots_cache_hits=2"}], RUN)
+    out = build_report(con, RUN.run_id)
+    assert "| robots | - | 4 | 2 | - |" in out

@@ -78,7 +78,8 @@ def test_robots_allow_then_scrape(con):
     assert e.fc_calls == [{"url": "https://a.lt/", "formats": ["markdown", "links"],
                            "onlyMainContent": False}]
     assert stats.items_ok == 1 and stats.items_failed == 0
-    assert stats.api_requests == 2  # firecrawl + robots
+    assert stats.api_requests == 1  # R25: Firecrawl only
+    assert "robots_requests=1" in stats.notes and "robots_cache_hits=0" in stats.notes
 
 
 def test_robots_disallow_skips_without_firecrawl_call(con):
@@ -250,3 +251,92 @@ def test_robots_bom_disallow_all():
     body = "﻿User-agent: *\nDisallow: /\n".encode()
     rc = RobotsChecker(client(lambda r: httpx.Response(200, content=body)), UA)
     assert rc.allowed("https://a.lt/") == (False, None)
+
+
+def _unsupported(b):
+    return httpx.Response(403, json={"success": False, "code": "UNSUPPORTED_SITE",
+                                     "error": "We do not support this site"})
+
+
+def test_firecrawl_403_is_item_error_and_next_site_scraped(con):
+    def fc(b):
+        return _unsupported(b) if "a.lt" in b["url"] else httpx.Response(200, json=fc_ok(b["url"]))
+    e = Env(con, [("p1", "https://a.lt/"), ("p2", "https://b.lt/")], fc=fc)
+    stats, rows = e.go()
+    by = {r[0]: r for r in rows}
+    assert by["p1"][5] == "error" and by["p1"][6] is None
+    assert by["p2"][5] is None and by["p2"][6]
+    assert len(e.fc_calls) == 2
+    assert stats.items_failed == 1 and stats.items_ok == 1
+    assert "firecrawl_errors=1" in stats.notes and "firecrawl_error_top=403" in stats.notes
+    assert con.execute("SELECT status FROM raw.run_log WHERE step='crawl'").fetchone()[0] == "partial"
+
+
+def test_firecrawl_403_logs_crawl_page_error(con, capsys):
+    e = Env(con, [("p1", "https://a.lt/")], fc=_unsupported)
+    e.go()
+    assert '"event": "crawl_page_error"' in capsys.readouterr().out
+
+
+def test_firecrawl_401_fails_step_status(con):
+    e = Env(con, [("p1", "https://a.lt/"), ("p2", "https://b.lt/")],
+            fc=lambda b: httpx.Response(401, json={"error": "Unauthorized"}))
+    with pytest.raises(AuthError) as exc:
+        e.go()
+    assert exc.value.status == 401 and len(e.fc_calls) == 1
+    assert con.execute("SELECT status FROM raw.run_log WHERE step='crawl'").fetchone()[0] == "failed"
+
+
+def test_cap_counts_retry_attempts(con):
+    attempts = []
+
+    def fc(b):
+        attempts.append(b["url"])
+        if len(attempts) <= 2:
+            raise httpx.ReadTimeout("slow")
+        return httpx.Response(200, json=fc_ok(b["url"]))
+    e = Env(con, [("p1", "https://a.lt/"), ("p2", "https://b.lt/")], fc=fc)
+    stats, rows = e.go(max_pages=3)
+    assert len(attempts) == 3  # 2 timeouts + success for a.lt; b.lt is capped
+    assert [r[5] for r in rows] == [None, "capped"]
+    assert stats.status == "capped" and stats.api_requests == 3
+
+
+def test_cap_cannot_be_exceeded_by_retries_within_a_scrape(con):
+    attempts = []
+
+    def fc(b):
+        attempts.append(1)
+        raise httpx.ReadTimeout("slow")
+    e = Env(con, [("p1", "https://a.lt/"), ("p2", "https://b.lt/")], fc=fc)
+    stats, rows = e.go(max_pages=2)
+    assert len(attempts) == 2 and stats.status == "capped"
+    assert [r[5] for r in rows] == ["capped", "capped"]
+    assert e.fc.max_requests is None  # restored
+
+
+def test_success_false_not_cached(tmp_path):
+    from src.cache import DiskCache, _firecrawl_cacheable
+    calls = []
+
+    def h(req):
+        calls.append(1)
+        return httpx.Response(200, json={"success": False, "error": "transient"})
+    c = client(h, "firecrawl")
+    c.cache, c.cacheable = DiskCache(tmp_path / "c", None), _firecrawl_cacheable
+    scrape(c, "https://a.lt/")
+    scrape(c, "https://a.lt/")
+    assert len(calls) == 2 and c.cache_hits == 0
+
+
+def test_success_true_is_cached(tmp_path):
+    from src.cache import DiskCache, _firecrawl_cacheable
+    calls = []
+
+    def h(req):
+        calls.append(1)
+        return httpx.Response(200, json=fc_ok("https://a.lt/"))
+    c = client(h, "firecrawl")
+    c.cache, c.cacheable = DiskCache(tmp_path / "c", None), _firecrawl_cacheable
+    scrape(c, "https://a.lt/")
+    assert scrape(c, "https://a.lt/").from_cache and len(calls) == 1

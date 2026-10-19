@@ -332,3 +332,21 @@ def test_live_one_tile_one_type(tmp_path):
     tile = Tile("live_vilnius_1km", 54.6790, 25.2760, 54.6880, 25.2910, 1.0)
     r = search_tile(places_client(s), "cafe", tile)
     assert len(r.places) >= 1
+
+
+def test_auth_error_mid_category_lands_fetched_rows(con, tmp_path):
+    state = {"n": 0}
+
+    def handler(body):
+        state["n"] += 1
+        if state["n"] == 1:
+            return httpx.Response(200, json=fx("page_partial"))
+        return httpx.Response(401, json={"error": {}})
+
+    client, _ = make_client(tmp_path, handler)
+    cfg = config({"cat": ["cafe", "restaurant"]})
+    # one root tile, two types: the cafe search lands data, the restaurant search gets the 401
+    with pytest.raises(AuthError):
+        run_places(con, client, cfg, RUN)
+    assert len(rows(con)) > 0
+    assert log_row(con)[0] == "failed"

@@ -1,17 +1,19 @@
 """Typed env settings and category/area config."""
 import json
+import sys
 from pathlib import Path
 
 import yaml
-from pydantic import BaseModel, Field, SecretStr, model_validator
+from pydantic import BaseModel, Field, SecretStr, ValidationError, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
 class Settings(BaseSettings):
-    model_config = SettingsConfigDict(env_file=".env", env_ignore_empty=True, extra="ignore")
+    model_config = SettingsConfigDict(env_file=".env", env_ignore_empty=True, extra="ignore",
+                                      hide_input_in_errors=True)
 
-    google_api_key: SecretStr
-    firecrawl_api_key: SecretStr
+    google_api_key: SecretStr | None = None
+    firecrawl_api_key: SecretStr | None = None
     run_month: str | None = None
     max_places_requests: int = 1000
     max_firecrawl_pages: int = 600
@@ -79,16 +81,36 @@ def load_settings() -> Settings:
     return Settings()
 
 
+def settings_error_text(exc: ValidationError) -> str:
+    """Failing field names only; never the input values (they may hold secrets)."""
+    parts = []
+    for err in exc.errors(include_input=False, include_url=False, include_context=False):
+        name = ".".join(str(x) for x in err["loc"]).upper() or "SETTINGS"
+        parts.append(f"{'missing' if err['type'] == 'missing' else 'invalid'} setting: {name}")
+    return "; ".join(dict.fromkeys(parts)) or "invalid settings"
+
+
+def load_settings_or_exit() -> Settings:
+    """load_settings() for CLI entries: on a validation error print field names, exit 2."""
+    try:
+        return load_settings()
+    except ValidationError as exc:
+        print(settings_error_text(exc), file=sys.stderr)
+        raise SystemExit(2) from None
+
+
 def load_config(path: Path) -> AppConfig:
     return AppConfig.model_validate(yaml.safe_load(Path(path).read_text()))
 
 
-def _mask(value: SecretStr) -> str:
+def _mask(value: SecretStr | None) -> str | None:
+    if value is None:
+        return None
     return value.get_secret_value()[:4] + "…"
 
 
 def main() -> None:
-    s = load_settings()
+    s = load_settings_or_exit()
     settings = s.model_dump(mode="python")
     for k, v in settings.items():
         if isinstance(v, SecretStr):
