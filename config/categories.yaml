@@ -1,8 +1,10 @@
 area:
-  name: Vilnius
-  bbox: {south: 54.57, west: 25.02, north: 54.83, east: 25.48}
-  tile_km: 8.0        # quadtree root size (D1)
-  min_tile_km: 0.5
+  name: Vilnius centre
+  # 4 x 4 km around the demo run's places; worst case 480 Places requests
+  # (4 roots x 8 types x 5 tiles x 3 pages), see `python -m src.cli full --dry-run`
+  bbox: {south: 54.663, west: 25.236, north: 54.699, east: 25.298}
+  tile_km: 2.1        # quadtree root size: 4 root tiles
+  min_tile_km: 1.0    # one split, 2.1 -> 1.05 km
 
 categories:
   cafes_restaurants:
