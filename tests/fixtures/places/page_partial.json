@@ -1,0 +1,165 @@
+{
+ "places": [
+  {
+   "id": "ChIJ_fake_101",
+   "types": [
+    "cafe",
+    "food",
+    "point_of_interest",
+    "establishment"
+   ],
+   "formattedAddress": "Fake g. 101, Vilnius",
+   "location": {
+    "latitude": 54.6901,
+    "longitude": 25.290100000000002
+   },
+   "rating": 4.1,
+   "userRatingCount": 111,
+   "googleMapsUri": "https://maps.example.test/?cid=101",
+   "websiteUri": "https://fake-cafe-101.example.test/",
+   "businessStatus": "OPERATIONAL",
+   "displayName": {
+    "text": "Fake Cafe 101",
+    "languageCode": "lt"
+   }
+  },
+  {
+   "id": "ChIJ_fake_102",
+   "types": [
+    "cafe",
+    "food",
+    "point_of_interest",
+    "establishment"
+   ],
+   "formattedAddress": "Fake g. 102, Vilnius",
+   "location": {
+    "latitude": 54.6902,
+    "longitude": 25.290200000000002
+   },
+   "rating": 4.2,
+   "userRatingCount": 112,
+   "googleMapsUri": "https://maps.example.test/?cid=102",
+   "websiteUri": "https://fake-cafe-102.example.test/",
+   "businessStatus": "OPERATIONAL",
+   "displayName": {
+    "text": "Fake Cafe 102",
+    "languageCode": "lt"
+   }
+  },
+  {
+   "id": "ChIJ_fake_103",
+   "types": [
+    "cafe",
+    "food",
+    "point_of_interest",
+    "establishment"
+   ],
+   "formattedAddress": "Fake g. 103, Vilnius",
+   "location": {
+    "latitude": 54.6903,
+    "longitude": 25.290300000000002
+   },
+   "rating": 4.3,
+   "userRatingCount": 113,
+   "googleMapsUri": "https://maps.example.test/?cid=103",
+   "websiteUri": "https://fake-cafe-103.example.test/",
+   "businessStatus": "OPERATIONAL",
+   "displayName": {
+    "text": "Fake Cafe 103",
+    "languageCode": "lt"
+   }
+  },
+  {
+   "id": "ChIJ_fake_104",
+   "types": [
+    "cafe",
+    "food",
+    "point_of_interest",
+    "establishment"
+   ],
+   "formattedAddress": "Fake g. 104, Vilnius",
+   "location": {
+    "latitude": 54.6904,
+    "longitude": 25.2904
+   },
+   "rating": 4.4,
+   "userRatingCount": 114,
+   "googleMapsUri": "https://maps.example.test/?cid=104",
+   "websiteUri": "https://fake-cafe-104.example.test/",
+   "businessStatus": "OPERATIONAL",
+   "displayName": {
+    "text": "Fake Cafe 104",
+    "languageCode": "lt"
+   }
+  },
+  {
+   "id": "ChIJ_fake_105",
+   "types": [
+    "cafe",
+    "food",
+    "point_of_interest",
+    "establishment"
+   ],
+   "formattedAddress": "Fake g. 105, Vilnius",
+   "location": {
+    "latitude": 54.6905,
+    "longitude": 25.2905
+   },
+   "rating": 4.5,
+   "userRatingCount": 115,
+   "googleMapsUri": "https://maps.example.test/?cid=105",
+   "websiteUri": "https://fake-cafe-105.example.test/",
+   "businessStatus": "OPERATIONAL",
+   "displayName": {
+    "text": "Fake Cafe 105",
+    "languageCode": "lt"
+   }
+  },
+  {
+   "id": "ChIJ_fake_106",
+   "types": [
+    "cafe",
+    "food",
+    "point_of_interest",
+    "establishment"
+   ],
+   "formattedAddress": "Fake g. 106, Vilnius",
+   "location": {
+    "latitude": 54.690599999999996,
+    "longitude": 25.2906
+   },
+   "rating": 4.6,
+   "userRatingCount": 116,
+   "googleMapsUri": "https://maps.example.test/?cid=106",
+   "websiteUri": "https://fake-cafe-106.example.test/",
+   "businessStatus": "OPERATIONAL",
+   "displayName": {
+    "text": "Fake Cafe 106",
+    "languageCode": "lt"
+   }
+  },
+  {
+   "id": "ChIJ_fake_107",
+   "types": [
+    "cafe",
+    "food",
+    "point_of_interest",
+    "establishment"
+   ],
+   "formattedAddress": "Fake g. 107, Vilnius",
+   "location": {
+    "latitude": 54.6907,
+    "longitude": 25.2907
+   },
+   "rating": 4.7,
+   "userRatingCount": 117,
+   "googleMapsUri": "https://maps.example.test/?cid=107",
+   "websiteUri": "https://fake-cafe-107.example.test/",
+   "businessStatus": "OPERATIONAL",
+   "displayName": {
+    "text": "Fake Cafe 107",
+    "languageCode": "lt"
+   }
+  }
+ ]
+}

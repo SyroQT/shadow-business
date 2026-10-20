@@ -8,10 +8,10 @@ keyed by request_hash (method + URL + canonical JSON body; headers and API keys
 are never stored). Replay them with tests/replay.py::replay_transport.
 """
 
-import hashlib
 import json
 import os
 import sys
+import time
 import urllib.robotparser
 from datetime import UTC, datetime
 from pathlib import Path
@@ -20,6 +20,10 @@ from urllib.parse import urlsplit
 import httpx
 
 ROOT = Path(__file__).resolve().parent.parent
+sys.path.insert(0, str(ROOT))
+
+from src.cache import request_hash  # noqa: E402
+
 OUT = ROOT / "tests" / "fixtures" / "recorded"
 USER_AGENT = "LeadsResearchBot/0.1"
 
@@ -34,6 +38,7 @@ MAX_PLACES_REQUESTS = 10
 
 FIRECRAWL_URL = "https://api.firecrawl.dev/v2/scrape"
 MAX_FIRECRAWL_PAGES = 10
+FIRECRAWL_SPACING_S = 6.5  # free plan: 10 scrapes/min
 
 # (category, includedType, tile_id, (south, west, north, east), max_pages)
 OLD_TOWN = (54.6790, 25.2760, 54.6880, 25.2910)          # ~1 km, dense
@@ -51,11 +56,6 @@ SOCIAL_DOMAINS = [
     "tiktok.com", "sites.google.com", "business.site", "g.page", "youtube.com",
     "linkedin.com", "booksy.com", "fresha.com", "treatwell.lt", "manobooking.lt", "page.link",
 ]
-
-
-def request_hash(method: str, url: str, body: dict | None) -> str:
-    canonical = json.dumps(body, sort_keys=True, separators=(",", ":"))
-    return hashlib.sha256(f"{method.upper()}\n{url}\n{canonical}".encode()).hexdigest()
 
 
 def load_env() -> dict[str, str]:
@@ -213,6 +213,8 @@ def record_firecrawl(env: dict[str, str]) -> None:
             if not allowed:
                 log("robots_skip", url=c["url"], reason=why)
                 continue
+            if sent:
+                time.sleep(FIRECRAWL_SPACING_S)
             body = {"url": c["url"], "formats": ["markdown", "links"], "onlyMainContent": False}
             resp = fc.post(FIRECRAWL_URL, json=body)
             sent += 1

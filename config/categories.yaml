@@ -1,0 +1,29 @@
+area:
+  name: Vilnius
+  bbox: {south: 54.57, west: 25.02, north: 54.83, east: 25.48}
+  tile_km: 8.0        # quadtree root size (D1)
+  min_tile_km: 0.5
+
+categories:
+  cafes_restaurants:
+    places_included_type: [cafe, coffee_shop, restaurant]
+    evrk_prefixes: ["56.11", "56.30"]
+  hair_beauty:
+    places_included_type: [hair_salon, barber_shop, beauty_salon]
+    evrk_prefixes: ["96.21", "96.22"]
+  car_service:
+    places_included_type: [car_repair, car_wash]
+    evrk_prefixes: ["95.31"]
+
+crawl:
+  user_agent: "LeadsResearchBot/0.1"
+  social_domains: [facebook.com, fb.com, instagram.com, linktr.ee, wolt.com, bolt.eu,
+                   tiktok.com, sites.google.com, business.site, g.page, youtube.com,
+                   linkedin.com, booksy.com, fresha.com, treatwell.lt, manobooking.lt, page.link]
+  legal_link_pattern: "kontakt|rekvizit|apie|about|contact|privatum|privacy|taisykl|terms|imone|company"
+  max_legal_links: 2
+
+sodra:
+  # Copy the real monthly-zip link from https://atvira.sodra.lt/imones/rinkiniai/index.html
+  # in a browser (the site is behind a Cloudflare challenge); use {year} for the year.
+  url_pattern: null

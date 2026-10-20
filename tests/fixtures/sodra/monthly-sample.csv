@@ -1,0 +1,21 @@
+﻿Draudėjo kodas (code);Juridinių asmenų registro kodas (jarCode);Pavadinimas (name);Savivaldybė, kurioje registruota(municipality);Ekonominės veiklos rūšies kodas(ecoActCode);Ekonominės veiklos rūšies kodas EVRK(ecoActCodeStr);Ekonominės veiklos rūšies pavadinimas(ecoActName);Mėnuo (month);Vidutinis darbo užmokestis (avgWage);Apdraustųjų skaičius (numInsured);Vidutinis darbo užmokestis II (avgWage2);Apdraustųjų skaičius II (numInsured2);Valstybinio socialinio draudimo įmoka (tax)
+50764;;"BRITŲ TARYBA";"Vilniaus m. sav.";;;"";202601;2754.09;4;;0;2510.18
+42399;;"LATVIJOS RESPUBLIKOS AMBASADA";"Vilniaus m. sav.";;;"";202601;;2;;0;
+0012345;123456789;"UAB ĄŽUOLAS";"Kauno m. sav.";4711;"47.11";"Mažmeninė prekyba";202601;1500.50;12;;0;480.1
+100000;300000000;"UAB TESTAS 0";"Vilniaus m. sav.";6201;"62.01";"Programavimas";202601;2000.00;5;;0;300.5
+100001;300000001;"UAB TESTAS 1";"Vilniaus m. sav.";6201;"62.01";"Programavimas";202601;2001.00;6;;0;301.5
+100002;300000002;"UAB TESTAS 2";"Vilniaus m. sav.";6201;"62.01";"Programavimas";202601;2002.00;7;;0;302.5
+100003;300000003;"UAB TESTAS 3";"Vilniaus m. sav.";6201;"62.01";"Programavimas";202601;2003.00;8;;0;303.5
+100004;300000004;"UAB TESTAS 4";"Vilniaus m. sav.";6201;"62.01";"Programavimas";202601;2004.00;9;;0;304.5
+100005;300000005;"UAB TESTAS 5";"Vilniaus m. sav.";6201;"62.01";"Programavimas";202601;2005.00;10;;0;305.5
+100006;300000006;"UAB TESTAS 6";"Vilniaus m. sav.";6201;"62.01";"Programavimas";202601;2006.00;11;;0;306.5
+50764;;"BRITŲ TARYBA";"Vilniaus m. sav.";;;"";202602;2754.09;4;;0;2510.18
+42399;;"LATVIJOS RESPUBLIKOS AMBASADA";"Vilniaus m. sav.";;;"";202602;;2;;0;
+0012345;123456789;"UAB ĄŽUOLAS";"Kauno m. sav.";4711;"47.11";"Mažmeninė prekyba";202602;1500.50;12;;0;480.1
+100000;300000000;"UAB TESTAS 0";"Vilniaus m. sav.";6201;"62.01";"Programavimas";202602;2000.00;5;;0;300.5
+100001;300000001;"UAB TESTAS 1";"Vilniaus m. sav.";6201;"62.01";"Programavimas";202602;2001.00;6;;0;301.5
+100002;300000002;"UAB TESTAS 2";"Vilniaus m. sav.";6201;"62.01";"Programavimas";202602;2002.00;7;;0;302.5
+100003;300000003;"UAB TESTAS 3";"Vilniaus m. sav.";6201;"62.01";"Programavimas";202602;2003.00;8;;0;303.5
+100004;300000004;"UAB TESTAS 4";"Vilniaus m. sav.";6201;"62.01";"Programavimas";202602;2004.00;9;;0;304.5
+100005;300000005;"UAB TESTAS 5";"Vilniaus m. sav.";6201;"62.01";"Programavimas";202602;2005.00;10;;0;305.5
+100006;300000006;"UAB TESTAS 6";"Vilniaus m. sav.";6201;"62.01";"Programavimas";202602;2006.00;11;;0;306.5
