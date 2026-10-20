@@ -8,7 +8,8 @@ Driven by `task.pdf`, four things shape the design:
 - the analyst has limited capacity and must **trust the list**; a flagged honest business is costly. So a company is flagged only when **two independent signals agree** (busy in public, low declared pay), after strict eligibility filters (§2, §4);
 - every lead must be **explainable**: plain numbers compared with something familiar (the category median, the minimum wage), never a composite score (§5);
 - every lead must be **traceable** to its listings and its Sodra record (§6);
-- the analyst runs it **monthly and compares**: each row carries last month's tier (§6).
+- the analyst runs it **monthly and compares**: each row carries last month's tier (§6);
+- the analyst must be shown **why the list can be trusted**: a threshold sensitivity table and a hand-checked match precision (§8).
 
 ---
 
@@ -50,10 +51,11 @@ One row per `(run_month, jar_code)` over `int_places_matched` rows with `match_s
 
 A company can only be a lead if it passes every check below. The **first** failing check, in this order, is recorded as `exclusion_reason`, and `tier = 'excluded'`:
 
-1. `weak_match`: `best_match_confidence` is not `high`, and is not `medium` with reasons exactly `['no_label']`. A code with an EVRK mismatch, an unknown EVRK, or several candidate codes probably belongs to someone else (franchisor, agency, operator).
-2. `not_operational`: `any_operational` is false.
-3. `no_employee_data`: `num_insured` is null.
-4. `too_few_reviews`: `chain_user_rating_count` is below the category's `min_reviews` (seed, §3). A handful of reviews says nothing about how busy a place is.
+1. `match_rejected`: the match was checked by hand (§8.2) and the verdict is `wrong`. A human verdict overrides the automatic confidence.
+2. `weak_match`: `best_match_confidence` is not `high`, and is not `medium` with reasons exactly `['no_label']`. A code with an EVRK mismatch, an unknown EVRK, or several candidate codes probably belongs to someone else (franchisor, agency, operator).
+3. `not_operational`: `any_operational` is false.
+4. `no_employee_data`: `num_insured` is null.
+5. `too_few_reviews`: `chain_user_rating_count` is below the category's `min_reviews` (seed, §3). A handful of reviews says nothing about how busy a place is.
 
 `num_insured = 0` is **not** excluded: zero declared employees with many reviews is exactly the pattern of interest. The ratio uses `greatest(num_insured, 1)`, and the reason text says "0 insured employees".
 
@@ -82,9 +84,11 @@ A test checks every category in the data has a row in the seed.
 
 ---
 
-## 4. Signals and tier (`mart_leads`, table, `marts`)
+## 4. Signals and tier (`int_lead_signals` → `mart_leads`)
 
-One row per `int_company_month` row (eligible or not), so the analyst can count shares per category.
+`int_lead_signals` (table, `intermediate`): one row per `int_company_month` row, with `exclusion_reason` (§2) and the signals below. Both `mart_leads` and `mart_threshold_sensitivity` (§8.1) read it, so neither depends on the other.
+
+`mart_leads` (table, `marts`): one row per `int_lead_signals` row (eligible or not), so the analyst can count shares per category. It adds the tier, ranks, reason text, `prev_tier` and the robustness counts from §8.1.
 
 Signals, computed for eligible rows only (null when excluded):
 
@@ -107,6 +111,8 @@ Tier, first rule that applies:
 | `watch` | `is_busy` and `is_low_wage` is not true | busy, but pay looks normal or is unknown |
 | `clear` | everything else | nothing stands out (includes `is_busy` null: too few peers to compare) |
 
+`is_busy`, `is_low_wage` and the tier rule are dbt **macros** (`lead_is_busy`, `lead_is_low_wage`, `lead_tier`) that take the thresholds as arguments. `mart_leads` calls them with the vars; the sensitivity model (§8.1) calls them with each grid row. The rule exists once.
+
 A low wage **alone** never makes a lead: part-time work is legal and lowers the average.
 
 `lead_rank`: within `(run_month, tier)`, ordered by `rpe_vs_median` desc, then `jar_code`. Analysts work `flag` from rank 1, then `watch`.
@@ -122,7 +128,7 @@ A low wage **alone** never makes a lead: part-time work is legal and lowers the 
 - `flag`: `"{chain reviews} Google reviews across {n_places} place(s) and {num_insured} insured employees: {rpe} reviews per employee, {rpe_vs_median}× the {lead_category} median ({median}). Average wage €{avg_wage}, {at/below/near} the minimum wage (€1153)."`
 - `watch`: the same first sentence, then `"Average wage €{avg_wage} looks normal."` or `"Average wage not published by Sodra."`
 - `clear`: `"{rpe_vs_median}× the {lead_category} median; below the {busy_multiple}× threshold."` or `"Only {peer_count} comparable companies in {lead_category}; at least {min_peers} needed to compare."`
-- `excluded`: a fixed sentence per `exclusion_reason`, e.g. `weak_match` → `"Company code on the website may not belong to this business ({reasons})."`
+- `excluded`: a fixed sentence per `exclusion_reason`, e.g. `weak_match` → `"Company code on the website may not belong to this business ({reasons})."`, `match_rejected` → `"Match checked by hand and rejected: {note}."`
 
 `category_caveat` (from the seed) is a separate column, shown next to the reason, not inside it.
 
@@ -139,7 +145,8 @@ Columns of `mart_leads`:
 | signals | `reviews_per_employee`, `peer_count`, `category_median_rpe`, `rpe_vs_median`, `is_busy`, `is_low_wage`, `wage_vs_minimum` |
 | public activity | `lead_category`, `n_places`, `chain_user_rating_count`, `places` |
 | declared activity | `company_name`, `evrk_code`, `evrk_name`, `sodra_month`, `num_insured`, `avg_wage`, `tax` |
-| match evidence | `best_match_confidence`, `best_match_confidence_reasons`, `code_source_url`, `code_context` |
+| match evidence | `best_match_confidence`, `best_match_confidence_reasons`, `code_source_url`, `code_context`, `match_review_verdict` (§8.2; null when not checked by hand) |
+| robustness | `settings_as_lead`, `settings_total` (§8.1) |
 | lineage | `places_run_id`, `sodra_run_id`, `sodra_source_url`, `sodra_file_sha256` |
 | thresholds used | `min_monthly_wage`, `busy_multiple` (copied in, so an old month's row still explains itself after a var changes) |
 
@@ -152,7 +159,7 @@ Columns of `mart_leads`:
 `src/export.py`, called by `src/pipeline.py` after a successful `dbt build` (replacing the "export not implemented" log line). For the latest `run_month` it writes:
 
 - `output/<run_month>/leads.csv`: every `mart_leads` row (list columns joined with `; `);
-- `output/<run_month>/leads.md`: a summary table (companies per category × tier), then one card per `flag` and `watch` lead in rank order, then, when `--top N` is given, cards for the remaining companies up to `priority_rank <= N` under a heading **"Closest to the threshold (not flagged)"**:
+- `output/<run_month>/leads.md`: a summary table (companies per category × tier), the threshold sensitivity grid (§8.1), the match precision table (§8.2), then one card per `flag` and `watch` lead in rank order, then, when `--top N` is given, cards for the remaining companies up to `priority_rank <= N` under a heading **"Closest to the threshold (not flagged)"**:
 
 ```
 FLAG #1  <company_name> (<lead_category>)                    run <run_month>
@@ -163,6 +170,8 @@ FLAG #1  <company_name> (<lead_category>)                    run <run_month>
           "<code_context>"
           Sodra: <company_name>, EVRK <evrk_code>, data month <sodra_month>
   Places: <name> — <google_maps_uri>   (one line per place)
+  Robust: flag or watch in <settings_as_lead> of <settings_total> threshold settings
+  Checked: match checked by hand: <verdict>   (line omitted when not checked)
   Note:   <category_caveat>
   Last month: <prev_tier or "not present">
 ```
@@ -177,7 +186,32 @@ The README gets a "Leads" section: what each tier means, the thresholds, and thr
 
 ---
 
-## 8. Tests
+## 8. Validation
+
+There is no ground truth for shadow-economy activity, so the list cannot be scored against known cases. Two checks show the parts that *can* be checked: whether the thresholds are arbitrary, and whether the matches are right. DECISIONS.md states what neither proves: that a flagged company evades tax. The inspection is the ground truth.
+
+### 8.1 Threshold sensitivity
+
+Question: would different, equally reasonable thresholds give a different list?
+
+- Seed `dbt/seeds/threshold_grid.csv` (`busy_multiple`, `low_wage_margin`): the 9 combinations of `{1.5, 2.0, 3.0}` × `{0.00, 0.10, 0.20}`. It must contain the current vars as one row (test).
+- `mart_threshold_sensitivity` (table, `marts`), grain `(run_month, busy_multiple, low_wage_margin, jar_code)`, over eligible companies only: the eligible rows of `int_lead_signals` cross-joined with the grid, tier recomputed through the §4 macros. `min_peers` and `min_monthly_wage` stay at their vars.
+- `mart_leads.settings_as_lead` = count of grid rows where the company is `flag` or `watch`; `settings_total` = grid rows (9). Null for `excluded`.
+- Export, in `leads.md`:
+  - grid table: rows `busy_multiple`, columns `low_wage_margin`, cell `"<flag> flag / <watch> watch"`, the current setting in bold;
+  - each card's "Robust" line. A company that is a lead in 8 of 9 settings is a solid lead; 1 of 9 means it sits on a threshold.
+
+### 8.2 Manual match precision
+
+Question: does the company code on the website really belong to that business? If not, the Sodra numbers describe the wrong company and a flag is a false accusation.
+
+- `python -m src.match_review sample [--n 20]` writes `dbt/seeds/match_review.csv` from the latest `run_month`: every `low` match, then `high` and `medium` matches alternately up to `n`, ordered by `md5(place_id)` within each level (deterministic). It refuses to overwrite an existing file. Columns: `place_id`, `jar_code`, `place_name`, `website_uri`, `code_context`, `company_name`, `evrk_name`, `match_confidence`, `verdict`, `note`. The reviewer fills `verdict` (`correct` / `wrong` / `unsure`, blank = not reviewed) and `note`. The display columns are there so the CSV can be reviewed without opening the database.
+- The seed is keyed on `(place_id, jar_code)`, not `run_month`: a verdict stays valid for later months as long as the same code is matched.
+- `mart_match_precision` (table, `marts`), one row per `match_confidence` level plus a row `eligible` (the §2 confidence rule): `n_reviewed`, `n_correct`, `n_wrong`, `n_unsure`, `precision = n_correct / (n_correct + n_wrong)` (null when the denominator is 0). Joined against the latest `run_month` of `int_places_matched`; verdicts whose `(place_id, jar_code)` is no longer matched are counted in a separate `stale` row.
+- `int_lead_signals.match_review_verdict` (carried into `mart_leads`): the verdict for any of the company's places (`wrong` wins over `unsure` wins over `correct`); `wrong` excludes the company (§2, `match_rejected`).
+- The first pass may be pre-filled by the assistant, but every verdict is confirmed by the user before it is committed. The committed file is the evidence.
+
+## 9. Tests
 
 Schema tests:
 - `(run_month, jar_code)` unique and not null in both models;
@@ -202,19 +236,26 @@ Unit tests (`mart_leads`, `int_company_month`):
 
 Python tests for `src/export.py` on a tmp DuckDB built by the dbt harness: both files written; `--top 0` writes one card per flag/watch row and none for `clear`/`excluded`; `--top N` adds `clear` cards up to `priority_rank <= N`, labelled `CLEAR`, under the "Closest to the threshold" heading; `excluded` never gets a card; the CSV is identical with and without `--top`.
 
+Validation tests:
+- `threshold_grid` contains the row (`busy_multiple` var, `low_wage_margin` var) (singular test);
+- for that row, `mart_threshold_sensitivity.tier` equals `mart_leads.tier` for every company (singular test: the macros are really shared);
+- `match_review`: `(place_id, jar_code)` unique; `verdict` in (`correct`, `wrong`, `unsure`) or null;
+- unit tests: `precision` ignores `unsure` and blank verdicts and is null with no `correct`/`wrong`; a stale verdict lands in the `stale` row; a `wrong` verdict excludes the company with `match_rejected` even when it would be `flag`; `settings_as_lead` counts a company busy at 1.5× but not at 2.0× as 3 of 9 when its wage is normal;
+- Python: `match_review sample` is deterministic, takes every `low` match first, and refuses to overwrite.
+
 Unit test: `priority_rank` orders a `watch` above a `clear` with a higher `rpe_vs_median`, and is null for `excluded`.
 
 ---
 
-## 9. Expected on the current data (sanity check, not a test)
+## 10. Expected on the current data (sanity check, not a test)
 
 About 20 of 43 matched companies are eligible (14 cafés/restaurants, 4 car service, 2 hair/beauty). Only cafés/restaurants reach `min_peers`. The highest `rpe_vs_median` is about 2.1, and none of the busy companies has a low wage, so the expected result is **0 `flag`, about 2 `watch`**. Car service and hair/beauty come out `clear` with "too few comparable companies". With the default `LEADS_TOP_N=10`, the demo output shows the 2 `watch` cards plus 8 `clear` cards closest to the threshold.
 
-That is the design working as intended (strict, few false positives), but it also shows the sample is the limit: the recorded demo covered a few tiles. A full Vilnius run of the three categories is what makes the peer medians meaningful. Report the real split in the plan's verification step.
+That is the design working as intended (strict, few false positives), but it also shows the sample is the limit: the recorded demo covered a few tiles. A full Vilnius run of the three categories is what makes the peer medians meaningful. Report the real split in the plan's verification step, together with the sensitivity grid. Match precision is reported once the user has filled in the review file; until then every verdict is blank and `mart_match_precision` shows `n_reviewed = 0`.
 
 ---
 
-## 10. Out of scope (decided)
+## 11. Out of scope (decided)
 
 - **Employee trend** over Sodra's 8 data months as a third signal. `stg_sodra` has the history; add later as a corroborating signal.
 - **Review velocity** (new reviews per month): needs two or more places runs.
@@ -222,7 +263,7 @@ That is the design working as intended (strict, few false positives), but it als
 - **A composite score**: rejected, it is harder to explain than two named signals.
 - Docker, the GitHub repo, the committed example output and DECISIONS.md: separate tasks.
 
-## 11. Open questions to settle during implementation
+## 12. Open questions to settle during implementation
 
 1. Confirm DuckDB `median()` works as a window function in the dbt-duckdb version pinned; if not, compute it in a grouped CTE and join back.
 2. Decide how `avg_wage` is formatted in the reason text (two decimals, `€1,268.30` vs `€1268.30`) and keep it identical in SQL and the export.
