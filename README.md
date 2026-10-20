@@ -79,6 +79,114 @@ run_month  match_status       match_confidence  count
 2026-10    not_fetched        NULL              55
 ```
 
+## Leads
+
+`marts.mart_leads` has one row per matched company per monthly run, with a tier, the numbers behind
+it and a one-sentence reason (`lead_reason`). A lead is a reason to look at a business, not proof of
+anything: the list says where checking is most worthwhile, and the analyst decides.
+
+A company is flagged only when two independent signals agree: it is **busy in public** (many Google
+reviews per insured employee, compared with similar businesses) and it **declares low pay** (average
+wage close to the minimum wage). Low pay alone never makes a lead, because part-time work is legal.
+
+| Tier | Meaning for the analyst |
+|---|---|
+| `flag` | Look here first: busy in public and low declared pay. |
+| `watch` | Busy in public, but pay looks normal or is not published (Sodra hides it for very small companies). |
+| `clear` | Nothing stands out. Includes categories with too few comparable companies to judge "busy". |
+| `excluded` | Not assessed; `exclusion_reason` says why (weak company match, place not operational, no employee data, too few reviews). |
+
+Thresholds are dbt vars in `dbt/dbt_project.yml`:
+
+| Var | Value | Meaning |
+|---|---|---|
+| `min_monthly_wage` | `1153` | Lithuanian minimum monthly wage, EUR, 2026. Update yearly |
+| `low_wage_margin` | `0.10` | "near" the minimum: average wage at most 1153 x 1.10 = 1268.30 |
+| `busy_multiple` | `2.0` | busy = at least 2x the category median of reviews per employee |
+| `min_peers` | `5` | fewest eligible companies a category needs for its median to count |
+
+and per category in the seed `dbt/seeds/category_lead_rules.csv`: `min_reviews` (fewer reviews than
+this and the company is excluded: 200 cafés and restaurants, 100 hair and beauty, 50 car service), a
+`caveat` shown on the lead card and a display `label`. To try another value without editing files, override a var on the command line (or edit the vars
+or the seed and rebuild):
+
+```
+uv run dbt build --project-dir dbt --profiles-dir dbt --vars '{busy_multiple: 1.5}'
+```
+
+Export the list for the latest month:
+
+```
+uv run python -m src.export [--top N] [--out DIR]
+```
+
+It writes `output/<run_month>/leads.csv` (every company) and `leads.md` (a summary, then one card
+per `flag` and `watch` lead). `--top N` also adds cards for the next companies by priority under
+"Closest to the threshold (not flagged)"; each card shows the company's real tier. `LEADS_TOP_N`
+sets the default (10; `0` = flag and watch only), and `python -m src.pipeline` uses it. `--top` only
+changes the cards, never the table or the CSV.
+
+Queries the analyst can run on `data/leads.duckdb` (latest month, current DB):
+
+1. Share of `flag` and `watch` per category, over all companies (excluded included) and over eligible
+   companies only:
+
+```sql
+select lead_category,
+       count(*) as companies,
+       round(100.0 * count(*) filter (where tier = 'flag') / count(*)) as flag_pct_all,
+       round(100.0 * count(*) filter (where tier = 'watch') / count(*)) as watch_pct_all,
+       round(100.0 * count(*) filter (where tier = 'flag')
+             / nullif(count(*) filter (where tier <> 'excluded'), 0)) as flag_pct_eligible,
+       round(100.0 * count(*) filter (where tier = 'watch')
+             / nullif(count(*) filter (where tier <> 'excluded'), 0)) as watch_pct_eligible
+from marts.mart_leads
+where run_month = (select max(run_month) from marts.mart_leads)
+group by lead_category
+order by lead_category;
+```
+
+```
+lead_category      companies  flag_pct_all  watch_pct_all  flag_pct_eligible  watch_pct_eligible
+cafes_restaurants  17         0.0           12.0           0.0                14.0
+car_service        8          0.0           0.0            0.0                0.0
+hair_beauty        5          0.0           0.0            0.0                0.0
+```
+
+2. New flags: companies flagged now that were not flagged last month:
+
+```sql
+select run_month, jar_code, company_name, lead_category, tier, prev_tier
+from marts.mart_leads
+where tier = 'flag' and prev_tier is distinct from 'flag'
+order by run_month, jar_code;
+```
+
+```
+(0 rows)
+```
+
+3. One company over time (here the top `watch` lead; there is only one month of data so far):
+
+```sql
+select run_month, tier, reviews_per_employee, num_insured, avg_wage
+from marts.mart_leads
+where jar_code = '304149432'
+order by run_month;
+```
+
+```
+run_month  tier   reviews_per_employee  num_insured  avg_wage
+2026-10    watch  86.1                  16           1546.74
+```
+
+Known limitations:
+
+- A category median over a handful of companies is a weak yardstick. Only cafés and restaurants reach
+  `min_peers` on the demo data; hair and beauty and car service are always `clear`, never "busy".
+- Reviews per employee is a rough measure: tourist-heavy places, and stylists who rent a chair as
+  self-employed, distort it. The card's `Note` line says which caveat applies.
+
 ## Sodra (Cloudflare workflow)
 
 The Sodra download sits behind Cloudflare, so fetch the zip in a browser from
