@@ -34,6 +34,11 @@ def _money(value) -> str:
     return f"€{float(value):.2f}"
 
 
+def _plain_money(value) -> str:
+    v = float(value)
+    return str(int(v)) if v == int(v) else f"{v:.2f}"
+
+
 def _mult(value) -> str:
     return f"{float(value):.1f}×"
 
@@ -56,7 +61,7 @@ def _card(r: dict, label: str) -> str:
     else:
         ratio = f", {_mult(r['wage_vs_minimum'])} the minimum wage" \
             if r["wage_vs_minimum"] is not None else ""
-        paid = f"average wage {_money(r['avg_wage'])}{ratio} (€{r['min_monthly_wage']})"
+        paid = f"average wage {_money(r['avg_wage'])}{ratio} (€{_plain_money(r['min_monthly_wage'])})"
     context = " ".join(r["code_context"].split()) if r["code_context"] else None
     lines += [
         f"  Paid:   {paid}",
@@ -65,7 +70,7 @@ def _card(r: dict, label: str) -> str:
         f"          Sodra: {r['company_name']}, EVRK {r['evrk_code']}, "
         f"data month {r['sodra_month']}",
     ]
-    lines += [f"  Places: {_place(p)}" if p.get("google_maps_uri")
+    lines += [f"  Places: {p['name']} — {p['google_maps_uri']}" if p.get("google_maps_uri")
               else f"  Places: {p['name']}" for p in r["places"]]
     lines += [f"  Note:   {r['category_caveat'] or NO_CAVEAT}",
               f"  Last month: {r['prev_tier'] or 'not present'}"]

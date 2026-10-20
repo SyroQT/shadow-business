@@ -145,3 +145,33 @@ def test_export_only_excluded(tmp_path):
     text = (out / "2026-10" / "leads.md").read_text()
     assert "excluded" in text
     assert cards(text) == []
+
+
+def test_card_places_and_minimum_wage_format(db, tmp_path):
+    export_leads(db, tmp_path, 0)
+    flag = next(c for c in cards(md(tmp_path)) if c.startswith("FLAG"))
+    assert re.search(r"^  Places: Cafe 5 — \S+$", flag, re.M)
+    assert "(€1153)" in flag
+
+
+def _main_calls(monkeypatch, result):
+    from types import SimpleNamespace
+
+    from src import export
+    calls = []
+    monkeypatch.setattr(export, "load_settings_or_exit",
+                        lambda: SimpleNamespace(db_path=Path("x.duckdb"), leads_top_n=7))
+    monkeypatch.setattr(export, "export_leads", lambda *a: calls.append(a) or result)
+    return export, calls
+
+
+def test_main_defaults_from_settings(monkeypatch):
+    export, calls = _main_calls(monkeypatch, Path("output/2026-10"))
+    assert export.main([]) == 0
+    assert calls == [(Path("x.duckdb"), Path("output"), 7)]
+
+
+def test_main_overrides_and_empty_returns_zero(monkeypatch):
+    export, calls = _main_calls(monkeypatch, None)
+    assert export.main(["--top", "3", "--out", "o"]) == 0
+    assert calls == [(Path("x.duckdb"), Path("o"), 3)]
