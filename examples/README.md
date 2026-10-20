@@ -1,19 +1,22 @@
 # Example output
 
-`2026-10/leads.csv` (the final mart, `marts.mart_leads`, for run month 2026-10) and
-`2026-10/leads.md` (the analyst cards, `--top 10`), made offline by `demo` from the committed
-snapshot `snapshots/2026-10_20261019T173429/`.
+The demo made these files offline from the committed snapshot
+`snapshots/2026-11_20261020T140513/`, for run month 2026-11:
 
-The run covers Vilnius, 3 categories and 171 Google Places results, matched to Sodra data for
-August 2026:
+- `2026-11/leads.csv`: the final mart, `marts.mart_leads`.
+- `2026-11/leads.md`: the analyst cards (`--top 10`).
 
-| Category | Companies | Watch | Clear | Excluded |
-|---|---|---|---|---|
-| cafés and restaurants | 17 | 2 | 12 | 3 |
-| car service | 8 | 0 | 2 | 6 |
-| hair and beauty | 5 | 0 | 2 | 3 |
+**What the run covered**
+- Central Vilnius, 3 categories, 1,248 Google Places results.
+- 154 places matched to a Sodra company; Sodra data is for August 2026.
 
-No company is flagged. To regenerate (a test checks that these files match):
+| Category | Companies | Flag | Watch | Clear | Excluded |
+|---|---|---|---|---|---|
+| cafés and restaurants | 57 | 1 | 3 | 31 | 22 |
+| car service | 31 | 2 | 0 | 4 | 25 |
+| hair and beauty | 22 | 0 | 1 | 5 | 16 |
+
+To regenerate them (a test checks that these files match the demo):
 
 ```bash
 uv run python -m src.cli demo --out examples
