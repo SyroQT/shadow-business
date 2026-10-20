@@ -1,0 +1,288 @@
+version: 2
+
+models:
+  - name: int_run_pairs
+    description: One row per places month with the Sodra run it uses (same month, else the latest earlier month, else null).
+    columns:
+      - name: run_month
+        data_tests: [unique, not_null]
+      - name: places_run_id
+        data_tests: [not_null]
+
+  - name: int_page_code_hits
+    description: One row per standalone 9-digit number on a fetched page, with its 40-character context window.
+    columns:
+      - name: run_month
+        data_tests: [not_null]
+      - name: jar_code
+        data_tests:
+          - matches_regex:
+              arguments:
+                pattern: '^\d{9}$'
+
+  - name: int_page_company_codes
+    description: One row per (run_month, place_id, jar_code) found on a place's fetched pages and present in the paired Sodra run.
+    data_tests:
+      - unique_combination:
+          arguments:
+            columns: [run_month, place_id, jar_code]
+    columns:
+      - name: run_month
+        data_tests: [not_null]
+      - name: jar_code
+        data_tests:
+          - not_null
+          - matches_regex:
+              arguments:
+                pattern: '^\d{9}$'
+
+  - name: int_page_company_codes_unmatched
+    description: Labelled codes shown on a place's pages that are absent from the paired Sodra run. Same columns as int_page_company_codes.
+    data_tests:
+      - unique_combination:
+          arguments:
+            columns: [run_month, place_id, jar_code]
+    columns:
+      - name: run_month
+        data_tests: [not_null]
+      - name: jar_code
+        data_tests:
+          - not_null
+          - matches_regex:
+              arguments:
+                pattern: '^\d{9}$'
+      - name: is_labelled
+        data_tests:
+          - accepted_values:
+              arguments:
+                values: [true]
+                quote: false
+
+unit_tests:
+  # ---- int_page_code_hits: extraction ----
+  - name: labelled_plain
+    model: int_page_code_hits
+    given:
+      - input: ref('stg_web_pages')
+        rows:
+          - {run_month: "2026-10", place_id: p1, page_role: home, final_url: "https://a.lt/", is_fetched: true, markdown: "Įmonės kodas: 305693312"}
+      - input: ref('stg_sodra')
+        rows:
+          - {run_id: s1, jar_code: "305693312"}
+      - input: ref('int_run_pairs')
+        rows:
+          - {run_month: "2026-10", sodra_run_id: s1}
+    expect:
+      rows:
+        - {place_id: p1, hit_index: 1, jar_code: "305693312", before_text: "Įmonės kodas: ", after_text: "", is_labelled: true, in_sodra: true}
+
+  - name: labelled_bold
+    model: int_page_code_hits
+    given:
+      - input: ref('stg_web_pages')
+        rows:
+          - {run_month: "2026-10", place_id: p1, page_role: home, final_url: "https://a.lt/", is_fetched: true, markdown: "**Įmonės kodas:** 305693312"}
+      - input: ref('stg_sodra')
+        rows:
+          - {run_id: s1, jar_code: "305693312"}
+      - input: ref('int_run_pairs')
+        rows:
+          - {run_month: "2026-10", sodra_run_id: s1}
+    expect:
+      rows:
+        - {place_id: p1, jar_code: "305693312", is_labelled: true, in_sodra: true}
+
+  - name: labelled_table_cell
+    model: int_page_code_hits
+    given:
+      - input: ref('stg_web_pages')
+        rows:
+          - {run_month: "2026-10", place_id: p1, page_role: legal_candidate, final_url: "https://a.lt/rekvizitai", is_fetched: true, markdown: "| Įmonės kodas | 121982951 |"}
+      - input: ref('stg_sodra')
+        rows:
+          - {run_id: s1, jar_code: "121982951"}
+      - input: ref('int_run_pairs')
+        rows:
+          - {run_month: "2026-10", sodra_run_id: s1}
+    expect:
+      rows:
+        - {place_id: p1, jar_code: "121982951", is_labelled: true, in_sodra: true}
+
+  - name: vat_no_hit
+    model: int_page_code_hits
+    given:
+      - input: ref('stg_web_pages')
+        rows:
+          - {run_month: "2026-10", place_id: p1, page_role: home, final_url: "https://a.lt/", is_fetched: true, markdown: "PVM kodas LT100012345678 arba LT123456789"}
+      - input: ref('stg_sodra')
+        rows:
+          - {run_id: s1, jar_code: "123456789"}
+      - input: ref('int_run_pairs')
+        rows:
+          - {run_month: "2026-10", sodra_run_id: s1}
+    expect:
+      rows: []
+
+  - name: long_digit_run_no_hit
+    model: int_page_code_hits
+    given:
+      - input: ref('stg_web_pages')
+        rows:
+          - {run_month: "2026-10", place_id: p1, page_role: home, final_url: "https://a.lt/", is_fetched: true, markdown: "Nr. 123456789012345678"}
+      - input: ref('stg_sodra')
+        rows:
+          - {run_id: s1, jar_code: "123456789"}
+      - input: ref('int_run_pairs')
+        rows:
+          - {run_month: "2026-10", sodra_run_id: s1}
+    expect:
+      rows: []
+
+  - name: code_at_text_edges
+    model: int_page_code_hits
+    given:
+      - input: ref('stg_web_pages')
+        rows:
+          - {run_month: "2026-10", place_id: p1, page_role: home, final_url: "https://a.lt/", is_fetched: true, markdown: "305693312"}
+          - {run_month: "2026-10", place_id: p2, page_role: home, final_url: "https://b.lt/", is_fetched: true, markdown: "kodas 305693312"}
+      - input: ref('stg_sodra')
+        rows:
+          - {run_id: s1, jar_code: "305693312"}
+      - input: ref('int_run_pairs')
+        rows:
+          - {run_month: "2026-10", sodra_run_id: s1}
+    expect:
+      rows:
+        - {place_id: p1, jar_code: "305693312", before_text: "", after_text: "", is_labelled: false, in_sodra: true}
+        - {place_id: p2, jar_code: "305693312", before_text: "kodas ", after_text: "", is_labelled: true, in_sodra: true}
+
+  - name: null_markdown_no_rows
+    model: int_page_code_hits
+    given:
+      - input: ref('stg_web_pages')
+        rows:
+          - {run_month: "2026-10", place_id: p1, page_role: home, final_url: "https://a.lt/", is_fetched: true, markdown: null}
+          - {run_month: "2026-10", place_id: p2, page_role: home, final_url: "https://b.lt/", is_fetched: false, markdown: "Įmonės kodas: 305693312"}
+      - input: ref('stg_sodra')
+        rows:
+          - {run_id: s1, jar_code: "305693312"}
+      - input: ref('int_run_pairs')
+        rows:
+          - {run_month: "2026-10", sodra_run_id: s1}
+    expect:
+      rows: []
+
+  - name: two_codes_one_page_keep_own_windows
+    description: Adjacent codes each keep their own preceding window.
+    model: int_page_code_hits
+    given:
+      - input: ref('stg_web_pages')
+        rows:
+          - {run_month: "2026-10", place_id: p1, page_role: home, final_url: "https://a.lt/", is_fetched: true, markdown: "kodas 111111111 ir 222222222"}
+      - input: ref('stg_sodra')
+        rows:
+          - {run_id: s1, jar_code: "111111111"}
+      - input: ref('int_run_pairs')
+        rows:
+          - {run_month: "2026-10", sodra_run_id: s1}
+    expect:
+      rows:
+        - {hit_index: 1, jar_code: "111111111", before_text: "kodas ", after_text: " ir ", is_labelled: true, in_sodra: true}
+        - {hit_index: 2, jar_code: "222222222", before_text: " ir ", after_text: "", is_labelled: false, in_sodra: false}
+
+  - name: in_sodra_uses_paired_run
+    description: A code only present in another Sodra run is not in_sodra.
+    model: int_page_code_hits
+    given:
+      - input: ref('stg_web_pages')
+        rows:
+          - {run_month: "2026-10", place_id: p1, page_role: home, final_url: "https://a.lt/", is_fetched: true, markdown: "Įmonės kodas: 305693312"}
+      - input: ref('stg_sodra')
+        rows:
+          - {run_id: s1, jar_code: "999999999"}
+          - {run_id: s2, jar_code: "305693312"}
+      - input: ref('int_run_pairs')
+        rows:
+          - {run_month: "2026-10", sodra_run_id: s1}
+    expect:
+      rows:
+        - {place_id: p1, jar_code: "305693312", is_labelled: true, in_sodra: false}
+
+  # ---- int_page_company_codes: validation and aggregation ----
+  - name: phone_not_in_sodra_no_row
+    model: int_page_company_codes
+    given:
+      - input: ref('int_page_code_hits')
+        rows:
+          - {run_month: "2026-10", place_id: p1, page_role: home, final_url: "https://a.lt/", hit_index: 1, jar_code: "860012345", before_text: "Tel. ", after_text: "", is_labelled: false, in_sodra: false}
+    expect:
+      rows: []
+
+  - name: same_code_two_pages
+    model: int_page_company_codes
+    given:
+      - input: ref('int_page_code_hits')
+        rows:
+          - {run_month: "2026-10", place_id: p1, page_role: home, final_url: "https://a.lt/", hit_index: 1, jar_code: "305693312", before_text: "Įmonės kodas: ", after_text: " (home)", is_labelled: true, in_sodra: true}
+          - {run_month: "2026-10", place_id: p1, page_role: legal_candidate, final_url: "https://a.lt/rekvizitai", hit_index: 1, jar_code: "305693312", before_text: "Įmonės kodas: ", after_text: " (legal)", is_labelled: true, in_sodra: true}
+    expect:
+      rows:
+        - {run_month: "2026-10", place_id: p1, jar_code: "305693312", is_labelled: true, n_occurrences: 2, found_on_roles: ['home', 'legal_candidate'], first_url: "https://a.lt/rekvizitai", code_context: "Įmonės kodas: 305693312 (legal)"}
+
+  - name: labelled_occurrence_beats_legal_page
+    model: int_page_company_codes
+    given:
+      - input: ref('int_page_code_hits')
+        rows:
+          - {run_month: "2026-10", place_id: p1, page_role: home, final_url: "https://a.lt/", hit_index: 3, jar_code: "305693312", before_text: "Įmonės kodas: ", after_text: "", is_labelled: true, in_sodra: true}
+          - {run_month: "2026-10", place_id: p1, page_role: legal_candidate, final_url: "https://a.lt/rekvizitai", hit_index: 1, jar_code: "305693312", before_text: "Nr. ", after_text: "", is_labelled: false, in_sodra: true}
+    expect:
+      rows:
+        - {place_id: p1, jar_code: "305693312", is_labelled: true, n_occurrences: 2, first_url: "https://a.lt/", code_context: "Įmonės kodas: 305693312"}
+
+  - name: two_codes_one_place
+    model: int_page_company_codes
+    given:
+      - input: ref('int_page_code_hits')
+        rows:
+          - {run_month: "2026-10", place_id: p1, page_role: home, final_url: "https://a.lt/", hit_index: 1, jar_code: "111111111", before_text: "kodas ", after_text: "", is_labelled: true, in_sodra: true}
+          - {run_month: "2026-10", place_id: p1, page_role: home, final_url: "https://a.lt/", hit_index: 2, jar_code: "222222222", before_text: "kodas ", after_text: "", is_labelled: true, in_sodra: true}
+    expect:
+      rows:
+        - {place_id: p1, jar_code: "111111111", n_occurrences: 1}
+        - {place_id: p1, jar_code: "222222222", n_occurrences: 1}
+
+  - name: same_place_two_months_independent
+    model: int_page_company_codes
+    given:
+      - input: ref('int_page_code_hits')
+        rows:
+          - {run_month: "2026-09", place_id: p1, page_role: home, final_url: "https://a.lt/", hit_index: 1, jar_code: "305693312", before_text: "kodas ", after_text: "", is_labelled: true, in_sodra: true}
+          - {run_month: "2026-10", place_id: p1, page_role: home, final_url: "https://a.lt/", hit_index: 1, jar_code: "305693312", before_text: "kodas ", after_text: "", is_labelled: true, in_sodra: true}
+    expect:
+      rows:
+        - {run_month: "2026-09", place_id: p1, jar_code: "305693312", n_occurrences: 1}
+        - {run_month: "2026-10", place_id: p1, jar_code: "305693312", n_occurrences: 1}
+
+  # ---- int_page_company_codes_unmatched ----
+  - name: unmatched_labelled_code
+    description: A labelled code absent from Sodra lands in _unmatched only.
+    model: int_page_company_codes_unmatched
+    given:
+      - input: ref('int_page_code_hits')
+        rows:
+          - {run_month: "2026-10", place_id: p1, page_role: home, final_url: "https://a.lt/", hit_index: 1, jar_code: "305693312", before_text: "Įmonės kodas: ", after_text: "", is_labelled: true, in_sodra: false}
+          - {run_month: "2026-10", place_id: p1, page_role: home, final_url: "https://a.lt/", hit_index: 2, jar_code: "860012345", before_text: "Tel. ", after_text: "", is_labelled: false, in_sodra: false}
+          - {run_month: "2026-10", place_id: p2, page_role: home, final_url: "https://b.lt/", hit_index: 1, jar_code: "121982951", before_text: "kodas ", after_text: "", is_labelled: true, in_sodra: true}
+    expect:
+      rows:
+        - {place_id: p1, jar_code: "305693312", is_labelled: true, n_occurrences: 1, code_context: "Įmonės kodas: 305693312"}
+
+  - name: unmatched_labelled_code_not_in_matched
+    model: int_page_company_codes
+    given:
+      - input: ref('int_page_code_hits')
+        rows:
+          - {run_month: "2026-10", place_id: p1, page_role: home, final_url: "https://a.lt/", hit_index: 1, jar_code: "305693312", before_text: "Įmonės kodas: ", after_text: "", is_labelled: true, in_sodra: false}
+    expect:
+      rows: []
