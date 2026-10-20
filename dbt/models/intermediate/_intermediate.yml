@@ -1275,3 +1275,41 @@ unit_tests:
         - {jar_code: "100000002", is_low_wage: false, wage_vs_minimum: 1.1}
         - {jar_code: "100000003", is_low_wage: null, wage_vs_minimum: null}
         - {jar_code: "100000004", is_low_wage: true, wage_vs_minimum: 0.86}
+
+  - name: medium_null_reasons_weak
+    model: int_lead_signals
+    given:
+      - input: ref('int_company_month')
+        rows:
+          - {run_month: "2026-10", jar_code: "100000001", lead_category: cafes_restaurants, chain_user_rating_count: 400, num_insured: 10, best_match_confidence: medium, best_match_confidence_reasons: null, any_operational: true}
+      - input: ref('category_lead_rules')
+        rows:
+          - {category: cafes_restaurants, min_reviews: 200, caveat: "c1", label: "cafés and restaurants"}
+          - {category: hair_beauty, min_reviews: 100, caveat: "c2", label: "hair and beauty"}
+          - {category: car_service, min_reviews: 50, caveat: "c3", label: "car service"}
+    expect:
+      rows:
+        - {exclusion_reason: weak_match}
+
+  - name: busy_uses_rounded_ratio
+    model: int_lead_signals
+    given:
+      - input: ref('int_company_month')
+        rows:
+          - {run_month: "2026-10", jar_code: "100000001", lead_category: cafes_restaurants, chain_user_rating_count: 200, num_insured: 10, best_match_confidence: high, best_match_confidence_reasons: [], any_operational: true}
+          - {run_month: "2026-10", jar_code: "100000002", lead_category: cafes_restaurants, chain_user_rating_count: 300, num_insured: 10, best_match_confidence: high, best_match_confidence_reasons: [], any_operational: true}
+          - {run_month: "2026-10", jar_code: "100000003", lead_category: cafes_restaurants, chain_user_rating_count: 500, num_insured: 10, best_match_confidence: high, best_match_confidence_reasons: [], any_operational: true}
+          - {run_month: "2026-10", jar_code: "100000004", lead_category: cafes_restaurants, chain_user_rating_count: 600, num_insured: 10, best_match_confidence: high, best_match_confidence_reasons: [], any_operational: true}
+          - {run_month: "2026-10", jar_code: "100000005", lead_category: cafes_restaurants, chain_user_rating_count: 980, num_insured: 10, best_match_confidence: high, best_match_confidence_reasons: [], any_operational: true}
+      - input: ref('category_lead_rules')
+        rows:
+          - {category: cafes_restaurants, min_reviews: 200, caveat: "c1", label: "cafés and restaurants"}
+          - {category: hair_beauty, min_reviews: 100, caveat: "c2", label: "hair and beauty"}
+          - {category: car_service, min_reviews: 50, caveat: "c3", label: "car service"}
+    expect:
+      rows:
+        - {jar_code: "100000001", category_median_rpe: 50, rpe_vs_median: 0.4, is_busy: false}
+        - {jar_code: "100000002", category_median_rpe: 50, rpe_vs_median: 0.6, is_busy: false}
+        - {jar_code: "100000003", category_median_rpe: 50, rpe_vs_median: 1.0, is_busy: false}
+        - {jar_code: "100000004", category_median_rpe: 50, rpe_vs_median: 1.2, is_busy: false}
+        - {jar_code: "100000005", category_median_rpe: 50, rpe_vs_median: 2.0, is_busy: true}

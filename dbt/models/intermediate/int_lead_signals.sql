@@ -10,7 +10,7 @@ with base as (
             when not (
                 m.best_match_confidence = 'high'
                 or (m.best_match_confidence = 'medium'
-                    and m.best_match_confidence_reasons = ['no_label']::varchar[])
+                    and coalesce(m.best_match_confidence_reasons = ['no_label']::varchar[], false))
             ) then 'weak_match'
             when not m.any_operational then 'not_operational'
             when m.num_insured is null then 'no_employee_data'
