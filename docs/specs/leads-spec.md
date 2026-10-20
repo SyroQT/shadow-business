@@ -145,7 +145,7 @@ Columns of `mart_leads`:
 | signals | `reviews_per_employee`, `peer_count`, `category_median_rpe`, `rpe_vs_median`, `is_busy`, `is_low_wage`, `wage_vs_minimum` |
 | public activity | `lead_category`, `n_places`, `chain_user_rating_count`, `places` |
 | declared activity | `company_name`, `evrk_code`, `evrk_name`, `sodra_month`, `num_insured`, `avg_wage`, `tax` |
-| match evidence | `best_match_confidence`, `best_match_confidence_reasons`, `code_source_url`, `code_context`, `match_review_verdict` (§8.2; null when not checked by hand) |
+| match evidence | `best_match_confidence`, `best_match_confidence_reasons`, `code_source_url`, `code_context`, `match_review_verdict`, `match_review_note` (§8.2; null when not checked by hand) |
 | robustness | `settings_as_lead`, `settings_total` (§8.1) |
 | lineage | `places_run_id`, `sodra_run_id`, `sodra_source_url`, `sodra_file_sha256` |
 | thresholds used | `min_monthly_wage`, `busy_multiple` (copied in, so an old month's row still explains itself after a var changes) |
@@ -208,7 +208,7 @@ Question: does the company code on the website really belong to that business? I
 - `python -m src.match_review sample [--n 20]` writes `dbt/seeds/match_review.csv` from the latest `run_month`: every `low` match, then `high` and `medium` matches alternately up to `n`, ordered by `md5(place_id)` within each level (deterministic). It refuses to overwrite an existing file. Columns: `place_id`, `jar_code`, `place_name`, `website_uri`, `code_context`, `company_name`, `evrk_name`, `match_confidence`, `verdict`, `note`. The reviewer fills `verdict` (`correct` / `wrong` / `unsure`, blank = not reviewed) and `note`. The display columns are there so the CSV can be reviewed without opening the database.
 - The seed is keyed on `(place_id, jar_code)`, not `run_month`: a verdict stays valid for later months as long as the same code is matched.
 - `mart_match_precision` (table, `marts`), one row per `match_confidence` level plus a row `eligible` (the §2 confidence rule): `n_reviewed`, `n_correct`, `n_wrong`, `n_unsure`, `precision = n_correct / (n_correct + n_wrong)` (null when the denominator is 0). Joined against the latest `run_month` of `int_places_matched`; verdicts whose `(place_id, jar_code)` is no longer matched are counted in a separate `stale` row.
-- `int_lead_signals.match_review_verdict` (carried into `mart_leads`): the verdict for any of the company's places (`wrong` wins over `unsure` wins over `correct`); `wrong` excludes the company (§2, `match_rejected`).
+- `int_lead_signals.match_review_verdict` (carried into `mart_leads`): the verdict for any of the company's places (`wrong` wins over `unsure` wins over `correct`), with that verdict's `note` as `match_review_note`; `wrong` excludes the company (§2, `match_rejected`).
 - The first pass may be pre-filled by the assistant, but every verdict is confirmed by the user before it is committed. The committed file is the evidence.
 
 ## 9. Tests
