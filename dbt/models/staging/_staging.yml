@@ -1,0 +1,58 @@
+version: 2
+
+models:
+  - name: stg_places
+    description: One row per (run_month, place_id, category) for the selected places run of each month.
+    data_tests:
+      - unique_combination:
+          arguments:
+            columns: [run_month, place_id, category]
+    columns:
+      - name: run_month
+        data_tests: [not_null]
+      - name: place_id
+        data_tests: [not_null]
+      - name: name
+        data_tests: [not_null]
+      - name: category
+        data_tests:
+          - not_null
+          - relationships:
+              arguments:
+                to: ref('category_evrk')
+                field: category
+  - name: stg_web_pages
+    description: One row per raw web_pages row of each month's selected places run.
+    columns:
+      - name: run_month
+        data_tests: [not_null]
+      - name: place_id
+        data_tests: [not_null]
+      - name: page_role
+        data_tests:
+          - not_null
+          - accepted_values:
+              arguments:
+                values: [home, legal_candidate]
+      - name: skip_reason
+        data_tests:
+          - accepted_values:
+              arguments:
+                values: [robots_disallow, social_domain, no_website, capped, error]
+  - name: stg_sodra
+    description: One row per (run_month, jar_code, month) for the selected Sodra run of each month; rows without a jarCode are dropped.
+    data_tests:
+      - unique_combination:
+          arguments:
+            columns: [run_month, jar_code, month]
+    columns:
+      - name: run_month
+        data_tests: [not_null]
+      - name: jar_code
+        data_tests:
+          - not_null
+          - matches_regex:
+              arguments:
+                pattern: '^\d{9}$'
+      - name: month
+        data_tests: [not_null]

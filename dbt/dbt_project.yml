@@ -1,0 +1,24 @@
+name: leads
+version: "0.1.0"
+config-version: 2
+profile: leads
+
+model-paths: ["models"]
+seed-paths: ["seeds"]
+macro-paths: ["macros"]
+test-paths: ["tests"]
+
+clean-targets: ["target", "dbt_packages"]
+
+models:
+  leads:
+    staging:
+      +schema: staging
+      +materialized: view
+    intermediate:
+      +schema: intermediate
+      +materialized: table
+
+seeds:
+  leads:
+    +schema: staging

@@ -1,0 +1,20 @@
+version: 2
+
+seeds:
+  - name: category_evrk
+    description: >
+      Category to EVRK prefix map. Mirrors config/categories.yaml
+      (a pytest test keeps them in sync).
+    config:
+      column_types:
+        category: varchar
+        evrk_prefix: varchar
+    columns:
+      - name: category
+        data_tests: [not_null]
+      - name: evrk_prefix
+        data_tests: [not_null]
+    data_tests:
+      - unique_combination:
+          arguments:
+            columns: [category, evrk_prefix]

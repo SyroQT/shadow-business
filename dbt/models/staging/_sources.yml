@@ -1,0 +1,43 @@
+version: 2
+
+sources:
+  - name: raw
+    description: Append-only landing tables written by the extraction step. Read-only for dbt.
+    schema: raw
+    tables:
+      - name: run_log
+        description: One row per finished step per run.
+        columns:
+          - name: run_id
+          - name: run_month
+          - name: step
+          - name: status
+      - name: places
+        description: One row per place returned by Google Places (payload is the raw JSON).
+        columns:
+          - name: run_id
+          - name: category
+          - name: place_id
+          - name: payload
+        data_tests:
+          - unique_combination:
+              arguments:
+                columns: [run_id, category, place_id]
+      - name: places_errors
+        description: Failed Places requests.
+      - name: web_pages
+        description: One row per crawled (or skipped) page of a place.
+        columns:
+          - name: place_id
+            data_tests: [not_null]
+          - name: page_role
+            data_tests: [not_null]
+          - name: run_id
+            data_tests: [not_null]
+      - name: sodra
+        description: Monthly Sodra open-data rows per insured company.
+        columns:
+          - name: month
+            data_tests: [not_null]
+          - name: code
+            data_tests: [not_null]

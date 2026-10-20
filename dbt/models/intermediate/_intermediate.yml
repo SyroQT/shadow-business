@@ -1,0 +1,950 @@
+version: 2
+
+models:
+  - name: int_run_pairs
+    description: One row per places month with the Sodra run it uses (same month, else the latest earlier month, else null).
+    columns:
+      - name: run_month
+        data_tests: [unique, not_null]
+      - name: places_run_id
+        data_tests: [not_null]
+
+  - name: int_page_code_hits
+    description: One row per standalone 9-digit number on a fetched page, with its 40-character context window.
+    columns:
+      - name: run_month
+        data_tests: [not_null]
+      - name: jar_code
+        data_tests:
+          - matches_regex:
+              arguments:
+                pattern: '^\d{9}$'
+
+  - name: int_page_company_codes
+    description: One row per (run_month, place_id, jar_code) found on a place's fetched pages and present in the paired Sodra run.
+    data_tests:
+      - unique_combination:
+          arguments:
+            columns: [run_month, place_id, jar_code]
+    columns:
+      - name: run_month
+        data_tests: [not_null]
+      - name: jar_code
+        data_tests:
+          - not_null
+          - matches_regex:
+              arguments:
+                pattern: '^\d{9}$'
+
+  - name: int_page_company_codes_unmatched
+    description: Labelled codes shown on a place's pages that are absent from the paired Sodra run. Same columns as int_page_company_codes.
+    data_tests:
+      - unique_combination:
+          arguments:
+            columns: [run_month, place_id, jar_code]
+    columns:
+      - name: run_month
+        data_tests: [not_null]
+      - name: jar_code
+        data_tests:
+          - not_null
+          - matches_regex:
+              arguments:
+                pattern: '^\d{9}$'
+      - name: is_labelled
+        data_tests:
+          - accepted_values:
+              arguments:
+                values: [true]
+                quote: false
+
+  - name: int_places_matched
+    description: One row per (run_month, place_id) of each month's selected places run, with crawl status, the chosen company code and the attached Sodra record.
+    data_tests:
+      - unique_combination:
+          arguments:
+            columns: [run_month, place_id]
+    columns:
+      - name: run_month
+        data_tests: [not_null]
+      - name: place_id
+        data_tests: [not_null]
+      - name: crawl_status
+        data_tests:
+          - not_null
+          - accepted_values:
+              arguments:
+                values: [fetched, not_crawled, no_website, social_domain, robots_disallow, capped, error]
+      - name: match_status
+        data_tests:
+          - not_null
+          - accepted_values:
+              arguments:
+                values: [matched, code_not_in_sodra, no_code_found, not_fetched]
+      - name: match_confidence
+        data_tests:
+          - accepted_values:
+              arguments:
+                values: [high, medium, low]
+
+unit_tests:
+  # ---- int_page_code_hits: extraction ----
+  - name: labelled_plain
+    model: int_page_code_hits
+    given:
+      - input: ref('stg_web_pages')
+        rows:
+          - {run_month: "2026-10", place_id: p1, page_role: home, final_url: "https://a.lt/", is_fetched: true, markdown: "Įmonės kodas: 305693312"}
+      - input: ref('stg_sodra')
+        rows:
+          - {run_id: s1, jar_code: "305693312"}
+      - input: ref('int_run_pairs')
+        rows:
+          - {run_month: "2026-10", sodra_run_id: s1}
+    expect:
+      rows:
+        - {place_id: p1, hit_index: 1, jar_code: "305693312", before_text: "Įmonės kodas: ", after_text: "", is_labelled: true, in_sodra: true}
+
+  - name: labelled_bold
+    model: int_page_code_hits
+    given:
+      - input: ref('stg_web_pages')
+        rows:
+          - {run_month: "2026-10", place_id: p1, page_role: home, final_url: "https://a.lt/", is_fetched: true, markdown: "**Įmonės kodas:** 305693312"}
+      - input: ref('stg_sodra')
+        rows:
+          - {run_id: s1, jar_code: "305693312"}
+      - input: ref('int_run_pairs')
+        rows:
+          - {run_month: "2026-10", sodra_run_id: s1}
+    expect:
+      rows:
+        - {place_id: p1, jar_code: "305693312", is_labelled: true, in_sodra: true}
+
+  - name: labelled_table_cell
+    model: int_page_code_hits
+    given:
+      - input: ref('stg_web_pages')
+        rows:
+          - {run_month: "2026-10", place_id: p1, page_role: legal_candidate, final_url: "https://a.lt/rekvizitai", is_fetched: true, markdown: "| Įmonės kodas | 121982951 |"}
+      - input: ref('stg_sodra')
+        rows:
+          - {run_id: s1, jar_code: "121982951"}
+      - input: ref('int_run_pairs')
+        rows:
+          - {run_month: "2026-10", sodra_run_id: s1}
+    expect:
+      rows:
+        - {place_id: p1, jar_code: "121982951", is_labelled: true, in_sodra: true}
+
+  - name: vat_no_hit
+    model: int_page_code_hits
+    given:
+      - input: ref('stg_web_pages')
+        rows:
+          - {run_month: "2026-10", place_id: p1, page_role: home, final_url: "https://a.lt/", is_fetched: true, markdown: "PVM kodas LT100012345678 arba LT123456789"}
+      - input: ref('stg_sodra')
+        rows:
+          - {run_id: s1, jar_code: "123456789"}
+      - input: ref('int_run_pairs')
+        rows:
+          - {run_month: "2026-10", sodra_run_id: s1}
+    expect:
+      rows: []
+
+  - name: long_digit_run_no_hit
+    model: int_page_code_hits
+    given:
+      - input: ref('stg_web_pages')
+        rows:
+          - {run_month: "2026-10", place_id: p1, page_role: home, final_url: "https://a.lt/", is_fetched: true, markdown: "Nr. 123456789012345678"}
+      - input: ref('stg_sodra')
+        rows:
+          - {run_id: s1, jar_code: "123456789"}
+      - input: ref('int_run_pairs')
+        rows:
+          - {run_month: "2026-10", sodra_run_id: s1}
+    expect:
+      rows: []
+
+  - name: code_at_text_edges
+    model: int_page_code_hits
+    given:
+      - input: ref('stg_web_pages')
+        rows:
+          - {run_month: "2026-10", place_id: p1, page_role: home, final_url: "https://a.lt/", is_fetched: true, markdown: "305693312"}
+          - {run_month: "2026-10", place_id: p2, page_role: home, final_url: "https://b.lt/", is_fetched: true, markdown: "kodas 305693312"}
+      - input: ref('stg_sodra')
+        rows:
+          - {run_id: s1, jar_code: "305693312"}
+      - input: ref('int_run_pairs')
+        rows:
+          - {run_month: "2026-10", sodra_run_id: s1}
+    expect:
+      rows:
+        - {place_id: p1, jar_code: "305693312", before_text: "", after_text: "", is_labelled: false, in_sodra: true}
+        - {place_id: p2, jar_code: "305693312", before_text: "kodas ", after_text: "", is_labelled: true, in_sodra: true}
+
+  - name: null_markdown_no_rows
+    model: int_page_code_hits
+    given:
+      - input: ref('stg_web_pages')
+        rows:
+          - {run_month: "2026-10", place_id: p1, page_role: home, final_url: "https://a.lt/", is_fetched: true, markdown: null}
+          - {run_month: "2026-10", place_id: p2, page_role: home, final_url: "https://b.lt/", is_fetched: false, markdown: "Įmonės kodas: 305693312"}
+      - input: ref('stg_sodra')
+        rows:
+          - {run_id: s1, jar_code: "305693312"}
+      - input: ref('int_run_pairs')
+        rows:
+          - {run_month: "2026-10", sodra_run_id: s1}
+    expect:
+      rows: []
+
+  - name: two_codes_one_page_keep_own_windows
+    description: Adjacent codes each keep their own preceding window.
+    model: int_page_code_hits
+    given:
+      - input: ref('stg_web_pages')
+        rows:
+          - {run_month: "2026-10", place_id: p1, page_role: home, final_url: "https://a.lt/", is_fetched: true, markdown: "kodas 111111111 ir 222222222"}
+      - input: ref('stg_sodra')
+        rows:
+          - {run_id: s1, jar_code: "111111111"}
+      - input: ref('int_run_pairs')
+        rows:
+          - {run_month: "2026-10", sodra_run_id: s1}
+    expect:
+      rows:
+        - {hit_index: 1, jar_code: "111111111", before_text: "kodas ", after_text: " ir ", is_labelled: true, in_sodra: true}
+        - {hit_index: 2, jar_code: "222222222", before_text: " ir ", after_text: "", is_labelled: false, in_sodra: false}
+
+  - name: in_sodra_uses_paired_run
+    description: A code only present in another Sodra run is not in_sodra.
+    model: int_page_code_hits
+    given:
+      - input: ref('stg_web_pages')
+        rows:
+          - {run_month: "2026-10", place_id: p1, page_role: home, final_url: "https://a.lt/", is_fetched: true, markdown: "Įmonės kodas: 305693312"}
+      - input: ref('stg_sodra')
+        rows:
+          - {run_id: s1, jar_code: "999999999"}
+          - {run_id: s2, jar_code: "305693312"}
+      - input: ref('int_run_pairs')
+        rows:
+          - {run_month: "2026-10", sodra_run_id: s1}
+    expect:
+      rows:
+        - {place_id: p1, jar_code: "305693312", is_labelled: true, in_sodra: false}
+
+  # ---- int_page_company_codes: validation and aggregation ----
+  - name: phone_not_in_sodra_no_row
+    model: int_page_company_codes
+    given:
+      - input: ref('int_page_code_hits')
+        rows:
+          - {run_month: "2026-10", place_id: p1, page_role: home, final_url: "https://a.lt/", hit_index: 1, jar_code: "860012345", before_text: "Tel. ", after_text: "", is_labelled: false, in_sodra: false}
+    expect:
+      rows: []
+
+  - name: same_code_two_pages
+    model: int_page_company_codes
+    given:
+      - input: ref('int_page_code_hits')
+        rows:
+          - {run_month: "2026-10", place_id: p1, page_role: home, final_url: "https://a.lt/", hit_index: 1, jar_code: "305693312", before_text: "Įmonės kodas: ", after_text: " (home)", is_labelled: true, in_sodra: true}
+          - {run_month: "2026-10", place_id: p1, page_role: legal_candidate, final_url: "https://a.lt/rekvizitai", hit_index: 1, jar_code: "305693312", before_text: "Įmonės kodas: ", after_text: " (legal)", is_labelled: true, in_sodra: true}
+    expect:
+      rows:
+        - {run_month: "2026-10", place_id: p1, jar_code: "305693312", is_labelled: true, n_occurrences: 2, found_on_roles: ['home', 'legal_candidate'], first_url: "https://a.lt/rekvizitai", code_context: "Įmonės kodas: 305693312 (legal)"}
+
+  - name: labelled_occurrence_beats_legal_page
+    model: int_page_company_codes
+    given:
+      - input: ref('int_page_code_hits')
+        rows:
+          - {run_month: "2026-10", place_id: p1, page_role: home, final_url: "https://a.lt/", hit_index: 3, jar_code: "305693312", before_text: "Įmonės kodas: ", after_text: "", is_labelled: true, in_sodra: true}
+          - {run_month: "2026-10", place_id: p1, page_role: legal_candidate, final_url: "https://a.lt/rekvizitai", hit_index: 1, jar_code: "305693312", before_text: "Nr. ", after_text: "", is_labelled: false, in_sodra: true}
+    expect:
+      rows:
+        - {place_id: p1, jar_code: "305693312", is_labelled: true, n_occurrences: 2, first_url: "https://a.lt/", code_context: "Įmonės kodas: 305693312"}
+
+  - name: two_codes_one_place
+    model: int_page_company_codes
+    given:
+      - input: ref('int_page_code_hits')
+        rows:
+          - {run_month: "2026-10", place_id: p1, page_role: home, final_url: "https://a.lt/", hit_index: 1, jar_code: "111111111", before_text: "kodas ", after_text: "", is_labelled: true, in_sodra: true}
+          - {run_month: "2026-10", place_id: p1, page_role: home, final_url: "https://a.lt/", hit_index: 2, jar_code: "222222222", before_text: "kodas ", after_text: "", is_labelled: true, in_sodra: true}
+    expect:
+      rows:
+        - {place_id: p1, jar_code: "111111111", n_occurrences: 1}
+        - {place_id: p1, jar_code: "222222222", n_occurrences: 1}
+
+  - name: same_place_two_months_independent
+    model: int_page_company_codes
+    given:
+      - input: ref('int_page_code_hits')
+        rows:
+          - {run_month: "2026-09", place_id: p1, page_role: home, final_url: "https://a.lt/", hit_index: 1, jar_code: "305693312", before_text: "kodas ", after_text: "", is_labelled: true, in_sodra: true}
+          - {run_month: "2026-10", place_id: p1, page_role: home, final_url: "https://a.lt/", hit_index: 1, jar_code: "305693312", before_text: "kodas ", after_text: "", is_labelled: true, in_sodra: true}
+    expect:
+      rows:
+        - {run_month: "2026-09", place_id: p1, jar_code: "305693312", n_occurrences: 1}
+        - {run_month: "2026-10", place_id: p1, jar_code: "305693312", n_occurrences: 1}
+
+  # ---- int_page_company_codes_unmatched ----
+  - name: unmatched_labelled_code
+    description: A labelled code absent from Sodra lands in _unmatched only.
+    model: int_page_company_codes_unmatched
+    given:
+      - input: ref('int_page_code_hits')
+        rows:
+          - {run_month: "2026-10", place_id: p1, page_role: home, final_url: "https://a.lt/", hit_index: 1, jar_code: "305693312", before_text: "Įmonės kodas: ", after_text: "", is_labelled: true, in_sodra: false}
+          - {run_month: "2026-10", place_id: p1, page_role: home, final_url: "https://a.lt/", hit_index: 2, jar_code: "860012345", before_text: "Tel. ", after_text: "", is_labelled: false, in_sodra: false}
+          - {run_month: "2026-10", place_id: p2, page_role: home, final_url: "https://b.lt/", hit_index: 1, jar_code: "121982951", before_text: "kodas ", after_text: "", is_labelled: true, in_sodra: true}
+    expect:
+      rows:
+        - {place_id: p1, jar_code: "305693312", is_labelled: true, n_occurrences: 1, code_context: "Įmonės kodas: 305693312"}
+
+  - name: unmatched_labelled_code_not_in_matched
+    model: int_page_company_codes
+    given:
+      - input: ref('int_page_code_hits')
+        rows:
+          - {run_month: "2026-10", place_id: p1, page_role: home, final_url: "https://a.lt/", hit_index: 1, jar_code: "305693312", before_text: "Įmonės kodas: ", after_text: "", is_labelled: true, in_sodra: false}
+    expect:
+      rows: []
+
+  - name: pick_labelled_over_frequent
+    model: int_places_matched
+    given:
+      - input: ref('stg_places')
+        rows:
+          - {run_month: "2026-10", place_id: p1, category: cafes_restaurants, name: Np1, user_rating_count: 5}
+      - input: ref('stg_web_pages')
+        rows:
+          - {run_month: "2026-10", place_id: p1, page_role: home, is_fetched: true, skip_reason: null}
+      - input: ref('int_page_company_codes')
+        rows:
+          - {run_month: "2026-10", place_id: p1, jar_code: "111111111", is_labelled: false, n_occurrences: 3, found_on_roles: [home], first_url: "https://a.lt/", code_context: "kodas 111111111"}
+          - {run_month: "2026-10", place_id: p1, jar_code: "222222222", is_labelled: true, n_occurrences: 1, found_on_roles: [home], first_url: "https://a.lt/", code_context: "kodas 222222222"}
+      - input: ref('int_page_company_codes_unmatched')
+        rows: []
+      - input: ref('stg_sodra')
+        rows:
+          - {run_id: s1, jar_code: "111111111", month: "2026-08-01", num_insured: 3, evrk_code: "56.11.00", company_name: UAB, source_url: "u", file_sha256: "h"}
+          - {run_id: s1, jar_code: "222222222", month: "2026-08-01", num_insured: 3, evrk_code: "56.11.00", company_name: UAB, source_url: "u", file_sha256: "h"}
+      - input: ref('int_run_pairs')
+        rows:
+          - {run_month: "2026-10", places_run_id: r1, sodra_run_id: s1}
+      - input: ref('category_evrk')
+        rows:
+          - {category: cafes_restaurants, evrk_prefix: "56.11"}
+          - {category: hair_beauty, evrk_prefix: "96.21"}
+    expect:
+      rows:
+        - {place_id: p1, match_status: matched, jar_code: "222222222", code_is_labelled: true, n_candidate_codes: 2}
+
+  - name: pick_tiebreak_lowest_code
+    model: int_places_matched
+    given:
+      - input: ref('stg_places')
+        rows:
+          - {run_month: "2026-10", place_id: p1, category: cafes_restaurants, name: Np1, user_rating_count: 5}
+      - input: ref('stg_web_pages')
+        rows:
+          - {run_month: "2026-10", place_id: p1, page_role: home, is_fetched: true, skip_reason: null}
+      - input: ref('int_page_company_codes')
+        rows:
+          - {run_month: "2026-10", place_id: p1, jar_code: "333333333", is_labelled: true, n_occurrences: 1, found_on_roles: [home], first_url: "https://a.lt/", code_context: "kodas 333333333"}
+          - {run_month: "2026-10", place_id: p1, jar_code: "222222222", is_labelled: true, n_occurrences: 1, found_on_roles: [home], first_url: "https://a.lt/", code_context: "kodas 222222222"}
+      - input: ref('int_page_company_codes_unmatched')
+        rows: []
+      - input: ref('stg_sodra')
+        rows:
+          - {run_id: s1, jar_code: "333333333", month: "2026-08-01", num_insured: 3, evrk_code: "56.11.00", company_name: UAB, source_url: "u", file_sha256: "h"}
+          - {run_id: s1, jar_code: "222222222", month: "2026-08-01", num_insured: 3, evrk_code: "56.11.00", company_name: UAB, source_url: "u", file_sha256: "h"}
+      - input: ref('int_run_pairs')
+        rows:
+          - {run_month: "2026-10", places_run_id: r1, sodra_run_id: s1}
+      - input: ref('category_evrk')
+        rows:
+          - {category: cafes_restaurants, evrk_prefix: "56.11"}
+          - {category: hair_beauty, evrk_prefix: "96.21"}
+    expect:
+      rows:
+        - {place_id: p1, jar_code: "222222222", n_candidate_codes: 2}
+
+  - name: status_code_not_in_sodra
+    model: int_places_matched
+    given:
+      - input: ref('stg_places')
+        rows:
+          - {run_month: "2026-10", place_id: p1, category: cafes_restaurants, name: Np1, user_rating_count: 5}
+      - input: ref('stg_web_pages')
+        rows:
+          - {run_month: "2026-10", place_id: p1, page_role: home, is_fetched: true, skip_reason: null}
+      - input: ref('int_page_company_codes')
+        rows: []
+      - input: ref('int_page_company_codes_unmatched')
+        rows:
+          - {run_month: "2026-10", place_id: p1, jar_code: "444444444", is_labelled: true, n_occurrences: 1, found_on_roles: [home], first_url: "https://a.lt/", code_context: "kodas 444444444"}
+      - input: ref('stg_sodra')
+        rows: []
+      - input: ref('int_run_pairs')
+        rows:
+          - {run_month: "2026-10", places_run_id: r1, sodra_run_id: s1}
+      - input: ref('category_evrk')
+        rows:
+          - {category: cafes_restaurants, evrk_prefix: "56.11"}
+          - {category: hair_beauty, evrk_prefix: "96.21"}
+    expect:
+      rows:
+        - {place_id: p1, match_status: code_not_in_sodra, jar_code: null, n_candidate_codes: 0, company_name: null}
+
+  - name: status_no_code_found
+    model: int_places_matched
+    given:
+      - input: ref('stg_places')
+        rows:
+          - {run_month: "2026-10", place_id: p1, category: cafes_restaurants, name: Np1, user_rating_count: 5}
+      - input: ref('stg_web_pages')
+        rows:
+          - {run_month: "2026-10", place_id: p1, page_role: home, is_fetched: true, skip_reason: null}
+      - input: ref('int_page_company_codes')
+        rows: []
+      - input: ref('int_page_company_codes_unmatched')
+        rows: []
+      - input: ref('stg_sodra')
+        rows: []
+      - input: ref('int_run_pairs')
+        rows:
+          - {run_month: "2026-10", places_run_id: r1, sodra_run_id: s1}
+      - input: ref('category_evrk')
+        rows:
+          - {category: cafes_restaurants, evrk_prefix: "56.11"}
+          - {category: hair_beauty, evrk_prefix: "96.21"}
+    expect:
+      rows:
+        - {place_id: p1, crawl_status: fetched, match_status: no_code_found, pages_fetched: 1, jar_code: null}
+
+  - name: status_not_fetched_social
+    model: int_places_matched
+    given:
+      - input: ref('stg_places')
+        rows:
+          - {run_month: "2026-10", place_id: p1, category: cafes_restaurants, name: Np1, user_rating_count: 5}
+      - input: ref('stg_web_pages')
+        rows:
+          - {run_month: "2026-10", place_id: p1, page_role: home, is_fetched: false, skip_reason: social_domain}
+      - input: ref('int_page_company_codes')
+        rows: []
+      - input: ref('int_page_company_codes_unmatched')
+        rows: []
+      - input: ref('stg_sodra')
+        rows: []
+      - input: ref('int_run_pairs')
+        rows:
+          - {run_month: "2026-10", places_run_id: r1, sodra_run_id: s1}
+      - input: ref('category_evrk')
+        rows:
+          - {category: cafes_restaurants, evrk_prefix: "56.11"}
+          - {category: hair_beauty, evrk_prefix: "96.21"}
+    expect:
+      rows:
+        - {place_id: p1, crawl_status: social_domain, match_status: not_fetched, pages_fetched: 0}
+
+  - name: status_not_crawled
+    model: int_places_matched
+    given:
+      - input: ref('stg_places')
+        rows:
+          - {run_month: "2026-10", place_id: p1, category: cafes_restaurants, name: Np1, user_rating_count: 5}
+      - input: ref('stg_web_pages')
+        rows: []
+      - input: ref('int_page_company_codes')
+        rows: []
+      - input: ref('int_page_company_codes_unmatched')
+        rows: []
+      - input: ref('stg_sodra')
+        rows: []
+      - input: ref('int_run_pairs')
+        rows:
+          - {run_month: "2026-10", places_run_id: r1, sodra_run_id: s1}
+      - input: ref('category_evrk')
+        rows:
+          - {category: cafes_restaurants, evrk_prefix: "56.11"}
+          - {category: hair_beauty, evrk_prefix: "96.21"}
+    expect:
+      rows:
+        - {place_id: p1, crawl_status: not_crawled, match_status: not_fetched, pages_fetched: 0}
+
+  - name: latest_sodra_month_attached
+    model: int_places_matched
+    given:
+      - input: ref('stg_places')
+        rows:
+          - {run_month: "2026-10", place_id: p1, category: cafes_restaurants, name: Np1, user_rating_count: 5}
+      - input: ref('stg_web_pages')
+        rows:
+          - {run_month: "2026-10", place_id: p1, page_role: home, is_fetched: true, skip_reason: null}
+      - input: ref('int_page_company_codes')
+        rows:
+          - {run_month: "2026-10", place_id: p1, jar_code: "111111111", is_labelled: true, n_occurrences: 1, found_on_roles: [home], first_url: "https://a.lt/", code_context: "kodas 111111111"}
+      - input: ref('int_page_company_codes_unmatched')
+        rows: []
+      - input: ref('stg_sodra')
+        rows:
+          - {run_id: s1, jar_code: "111111111", month: "2026-07-01", num_insured: 2, evrk_code: "56.11.00", company_name: UAB, source_url: "u", file_sha256: "h"}
+          - {run_id: s1, jar_code: "111111111", month: "2026-08-01", num_insured: 7, evrk_code: "56.11.00", company_name: UAB, source_url: "u", file_sha256: "h"}
+      - input: ref('int_run_pairs')
+        rows:
+          - {run_month: "2026-10", places_run_id: r1, sodra_run_id: s1}
+      - input: ref('category_evrk')
+        rows:
+          - {category: cafes_restaurants, evrk_prefix: "56.11"}
+          - {category: hair_beauty, evrk_prefix: "96.21"}
+    expect:
+      rows:
+        - {place_id: p1, sodra_month: "2026-08-01", num_insured: 7, sodra_run_id: s1, sodra_source_url: "u", sodra_file_sha256: "h", places_run_id: r1}
+
+  - name: evrk_check
+    model: int_places_matched
+    given:
+      - input: ref('stg_places')
+        rows:
+          - {run_month: "2026-10", place_id: p1, category: cafes_restaurants, name: Np1, user_rating_count: 5}
+          - {run_month: "2026-10", place_id: p2, category: cafes_restaurants, name: Np2, user_rating_count: 5}
+          - {run_month: "2026-10", place_id: p3, category: cafes_restaurants, name: Np3, user_rating_count: 5}
+      - input: ref('stg_web_pages')
+        rows:
+          - {run_month: "2026-10", place_id: p1, page_role: home, is_fetched: true, skip_reason: null}
+          - {run_month: "2026-10", place_id: p2, page_role: home, is_fetched: true, skip_reason: null}
+          - {run_month: "2026-10", place_id: p3, page_role: home, is_fetched: true, skip_reason: null}
+      - input: ref('int_page_company_codes')
+        rows:
+          - {run_month: "2026-10", place_id: p1, jar_code: "111111111", is_labelled: true, n_occurrences: 1, found_on_roles: [home], first_url: "https://a.lt/", code_context: "kodas 111111111"}
+          - {run_month: "2026-10", place_id: p2, jar_code: "222222222", is_labelled: true, n_occurrences: 1, found_on_roles: [home], first_url: "https://a.lt/", code_context: "kodas 222222222"}
+      - input: ref('int_page_company_codes_unmatched')
+        rows: []
+      - input: ref('stg_sodra')
+        rows:
+          - {run_id: s1, jar_code: "111111111", month: "2026-08-01", num_insured: 3, evrk_code: "56.11.00", company_name: UAB, source_url: "u", file_sha256: "h"}
+          - {run_id: s1, jar_code: "222222222", month: "2026-08-01", num_insured: 3, evrk_code: "47.11.00", company_name: UAB, source_url: "u", file_sha256: "h"}
+      - input: ref('int_run_pairs')
+        rows:
+          - {run_month: "2026-10", places_run_id: r1, sodra_run_id: s1}
+      - input: ref('category_evrk')
+        rows:
+          - {category: cafes_restaurants, evrk_prefix: "56.11"}
+          - {category: hair_beauty, evrk_prefix: "96.21"}
+    expect:
+      rows:
+        - {place_id: p1, evrk_matches_category: true}
+        - {place_id: p2, evrk_matches_category: false}
+        - {place_id: p3, evrk_matches_category: null}
+
+  - name: two_categories_one_row
+    model: int_places_matched
+    given:
+      - input: ref('stg_places')
+        rows:
+          - {run_month: "2026-10", place_id: p1, category: hair_beauty, name: Np1, user_rating_count: 5}
+          - {run_month: "2026-10", place_id: p1, category: cafes_restaurants, name: Np1, user_rating_count: 5}
+      - input: ref('stg_web_pages')
+        rows:
+          - {run_month: "2026-10", place_id: p1, page_role: home, is_fetched: true, skip_reason: null}
+      - input: ref('int_page_company_codes')
+        rows:
+          - {run_month: "2026-10", place_id: p1, jar_code: "111111111", is_labelled: true, n_occurrences: 1, found_on_roles: [home], first_url: "https://a.lt/", code_context: "kodas 111111111"}
+      - input: ref('int_page_company_codes_unmatched')
+        rows: []
+      - input: ref('stg_sodra')
+        rows:
+          - {run_id: s1, jar_code: "111111111", month: "2026-08-01", num_insured: 3, evrk_code: "96.21.00", company_name: UAB, source_url: "u", file_sha256: "h"}
+      - input: ref('int_run_pairs')
+        rows:
+          - {run_month: "2026-10", places_run_id: r1, sodra_run_id: s1}
+      - input: ref('category_evrk')
+        rows:
+          - {category: cafes_restaurants, evrk_prefix: "56.11"}
+          - {category: hair_beauty, evrk_prefix: "96.21"}
+    expect:
+      rows:
+        - {place_id: p1, categories: ["cafes_restaurants", "hair_beauty"], evrk_matches_category: true}
+
+  - name: not_fetched_zero_candidates
+    model: int_places_matched
+    given:
+      - input: ref('stg_places')
+        rows:
+          - {run_month: "2026-10", place_id: p1, category: cafes_restaurants, name: N, user_rating_count: 5}
+      - input: ref('stg_web_pages')
+        rows:
+          - {run_month: "2026-10", place_id: p1, page_role: home, is_fetched: false, skip_reason: no_website}
+      - input: ref('int_page_company_codes')
+        rows:
+          - {run_month: "2026-10", place_id: p1, jar_code: "111111111", is_labelled: true, n_occurrences: 1, found_on_roles: [home], first_url: "https://a.lt/", code_context: "kodas 111111111"}
+      - input: ref('int_page_company_codes_unmatched')
+        rows: []
+      - input: ref('stg_sodra')
+        rows:
+          - {run_id: s1, jar_code: "111111111", month: "2026-08-01", evrk_code: 56.11.00, company_name: UAB, source_url: "u", file_sha256: "h"}
+      - input: ref('int_run_pairs')
+        rows:
+          - {run_month: "2026-10", places_run_id: r1, sodra_run_id: s1}
+      - input: ref('category_evrk')
+        rows:
+          - {category: cafes_restaurants, evrk_prefix: "56.11"}
+    expect:
+      rows:
+        - {place_id: p1, match_status: not_fetched, jar_code: null, n_candidate_codes: 0, code_source_url: null, code_context: null}
+
+  - name: evrk_null_when_company_evrk_null
+    model: int_places_matched
+    given:
+      - input: ref('stg_places')
+        rows:
+          - {run_month: "2026-10", place_id: p1, category: cafes_restaurants, name: N, user_rating_count: 5}
+      - input: ref('stg_web_pages')
+        rows:
+          - {run_month: "2026-10", place_id: p1, page_role: home, is_fetched: true, skip_reason: null}
+      - input: ref('int_page_company_codes')
+        rows:
+          - {run_month: "2026-10", place_id: p1, jar_code: "111111111", is_labelled: true, n_occurrences: 1, found_on_roles: [home], first_url: "https://a.lt/", code_context: "kodas 111111111"}
+      - input: ref('int_page_company_codes_unmatched')
+        rows: []
+      - input: ref('stg_sodra')
+        rows:
+          - {run_id: s1, jar_code: "111111111", month: "2026-08-01", evrk_code: null, company_name: UAB, source_url: "u", file_sha256: "h"}
+      - input: ref('int_run_pairs')
+        rows:
+          - {run_month: "2026-10", places_run_id: r1, sodra_run_id: s1}
+      - input: ref('category_evrk')
+        rows:
+          - {category: cafes_restaurants, evrk_prefix: "56.11"}
+    expect:
+      rows:
+        - {place_id: p1, match_status: matched, evrk_matches_category: null}
+
+  - name: pick_most_occurrences_among_unlabelled
+    model: int_places_matched
+    given:
+      - input: ref('stg_places')
+        rows:
+          - {run_month: "2026-10", place_id: p1, category: cafes_restaurants, name: N, user_rating_count: 5}
+      - input: ref('stg_web_pages')
+        rows:
+          - {run_month: "2026-10", place_id: p1, page_role: home, is_fetched: true, skip_reason: null}
+      - input: ref('int_page_company_codes')
+        rows:
+          - {run_month: "2026-10", place_id: p1, jar_code: "222222222", is_labelled: false, n_occurrences: 1, found_on_roles: [home], first_url: "https://a.lt/", code_context: "kodas 222222222"}
+          - {run_month: "2026-10", place_id: p1, jar_code: "333333333", is_labelled: false, n_occurrences: 3, found_on_roles: [home], first_url: "https://a.lt/", code_context: "kodas 333333333"}
+      - input: ref('int_page_company_codes_unmatched')
+        rows: []
+      - input: ref('stg_sodra')
+        rows:
+          - {run_id: s1, jar_code: "222222222", month: "2026-08-01", evrk_code: 56.11.00, company_name: UAB, source_url: "u", file_sha256: "h"}
+          - {run_id: s1, jar_code: "333333333", month: "2026-08-01", evrk_code: 56.11.00, company_name: UAB, source_url: "u", file_sha256: "h"}
+      - input: ref('int_run_pairs')
+        rows:
+          - {run_month: "2026-10", places_run_id: r1, sodra_run_id: s1}
+      - input: ref('category_evrk')
+        rows:
+          - {category: cafes_restaurants, evrk_prefix: "56.11"}
+    expect:
+      rows:
+        - {place_id: p1, jar_code: "333333333", n_candidate_codes: 2}
+
+  - name: pick_legal_candidate_over_home
+    model: int_places_matched
+    given:
+      - input: ref('stg_places')
+        rows:
+          - {run_month: "2026-10", place_id: p1, category: cafes_restaurants, name: N, user_rating_count: 5}
+      - input: ref('stg_web_pages')
+        rows:
+          - {run_month: "2026-10", place_id: p1, page_role: home, is_fetched: true, skip_reason: null}
+      - input: ref('int_page_company_codes')
+        rows:
+          - {run_month: "2026-10", place_id: p1, jar_code: "222222222", is_labelled: true, n_occurrences: 1, found_on_roles: [home], first_url: "https://a.lt/", code_context: "kodas 222222222"}
+          - {run_month: "2026-10", place_id: p1, jar_code: "333333333", is_labelled: true, n_occurrences: 1, found_on_roles: [legal_candidate], first_url: "https://a.lt/", code_context: "kodas 333333333"}
+      - input: ref('int_page_company_codes_unmatched')
+        rows: []
+      - input: ref('stg_sodra')
+        rows:
+          - {run_id: s1, jar_code: "222222222", month: "2026-08-01", evrk_code: 56.11.00, company_name: UAB, source_url: "u", file_sha256: "h"}
+          - {run_id: s1, jar_code: "333333333", month: "2026-08-01", evrk_code: 56.11.00, company_name: UAB, source_url: "u", file_sha256: "h"}
+      - input: ref('int_run_pairs')
+        rows:
+          - {run_month: "2026-10", places_run_id: r1, sodra_run_id: s1}
+      - input: ref('category_evrk')
+        rows:
+          - {category: cafes_restaurants, evrk_prefix: "56.11"}
+    expect:
+      rows:
+        - {place_id: p1, jar_code: "333333333", n_candidate_codes: 2}
+
+  - name: confidence_high
+    model: int_places_matched
+    given:
+      - input: ref('stg_places')
+        rows:
+          - {run_month: "2026-10", place_id: p1, category: cafes_restaurants, name: Np1, user_rating_count: 5}
+      - input: ref('stg_web_pages')
+        rows:
+          - {run_month: "2026-10", place_id: p1, page_role: home, is_fetched: true, skip_reason: null}
+      - input: ref('int_page_company_codes')
+        rows:
+          - {run_month: "2026-10", place_id: p1, jar_code: "111111111", is_labelled: true, n_occurrences: 1, found_on_roles: [home], first_url: "https://a.lt/", code_context: "kodas 111111111"}
+      - input: ref('int_page_company_codes_unmatched')
+        rows: []
+      - input: ref('stg_sodra')
+        rows:
+          - {run_id: s1, jar_code: "111111111", month: "2026-08-01", evrk_code: 56.11.00, company_name: UAB, source_url: "u", file_sha256: "h"}
+      - input: ref('int_run_pairs')
+        rows:
+          - {run_month: "2026-10", places_run_id: r1, sodra_run_id: s1}
+          - {run_month: "2026-09", places_run_id: r0, sodra_run_id: s1}
+      - input: ref('category_evrk')
+        rows:
+          - {category: cafes_restaurants, evrk_prefix: "56.11"}
+    expect:
+      rows:
+        - {place_id: p1, match_status: matched, match_confidence: high, match_confidence_reasons: []}
+
+  - name: confidence_medium_evrk_mismatch
+    model: int_places_matched
+    given:
+      - input: ref('stg_places')
+        rows:
+          - {run_month: "2026-10", place_id: p1, category: cafes_restaurants, name: Np1, user_rating_count: 5}
+      - input: ref('stg_web_pages')
+        rows:
+          - {run_month: "2026-10", place_id: p1, page_role: home, is_fetched: true, skip_reason: null}
+      - input: ref('int_page_company_codes')
+        rows:
+          - {run_month: "2026-10", place_id: p1, jar_code: "111111111", is_labelled: true, n_occurrences: 1, found_on_roles: [home], first_url: "https://a.lt/", code_context: "kodas 111111111"}
+      - input: ref('int_page_company_codes_unmatched')
+        rows: []
+      - input: ref('stg_sodra')
+        rows:
+          - {run_id: s1, jar_code: "111111111", month: "2026-08-01", evrk_code: 47.11.00, company_name: UAB, source_url: "u", file_sha256: "h"}
+      - input: ref('int_run_pairs')
+        rows:
+          - {run_month: "2026-10", places_run_id: r1, sodra_run_id: s1}
+          - {run_month: "2026-09", places_run_id: r0, sodra_run_id: s1}
+      - input: ref('category_evrk')
+        rows:
+          - {category: cafes_restaurants, evrk_prefix: "56.11"}
+    expect:
+      rows:
+        - {place_id: p1, match_confidence: medium, match_confidence_reasons: ['evrk_mismatch']}
+
+  - name: confidence_medium_no_label
+    model: int_places_matched
+    given:
+      - input: ref('stg_places')
+        rows:
+          - {run_month: "2026-10", place_id: p1, category: cafes_restaurants, name: Np1, user_rating_count: 5}
+      - input: ref('stg_web_pages')
+        rows:
+          - {run_month: "2026-10", place_id: p1, page_role: home, is_fetched: true, skip_reason: null}
+      - input: ref('int_page_company_codes')
+        rows:
+          - {run_month: "2026-10", place_id: p1, jar_code: "111111111", is_labelled: false, n_occurrences: 1, found_on_roles: [home], first_url: "https://a.lt/", code_context: "kodas 111111111"}
+      - input: ref('int_page_company_codes_unmatched')
+        rows: []
+      - input: ref('stg_sodra')
+        rows:
+          - {run_id: s1, jar_code: "111111111", month: "2026-08-01", evrk_code: 56.11.00, company_name: UAB, source_url: "u", file_sha256: "h"}
+      - input: ref('int_run_pairs')
+        rows:
+          - {run_month: "2026-10", places_run_id: r1, sodra_run_id: s1}
+          - {run_month: "2026-09", places_run_id: r0, sodra_run_id: s1}
+      - input: ref('category_evrk')
+        rows:
+          - {category: cafes_restaurants, evrk_prefix: "56.11"}
+    expect:
+      rows:
+        - {place_id: p1, match_confidence: medium, match_confidence_reasons: ['no_label']}
+
+  - name: confidence_medium_multiple_codes
+    model: int_places_matched
+    given:
+      - input: ref('stg_places')
+        rows:
+          - {run_month: "2026-10", place_id: p1, category: cafes_restaurants, name: Np1, user_rating_count: 5}
+      - input: ref('stg_web_pages')
+        rows:
+          - {run_month: "2026-10", place_id: p1, page_role: home, is_fetched: true, skip_reason: null}
+      - input: ref('int_page_company_codes')
+        rows:
+          - {run_month: "2026-10", place_id: p1, jar_code: "111111111", is_labelled: true, n_occurrences: 1, found_on_roles: [home], first_url: "https://a.lt/", code_context: "kodas 111111111"}
+          - {run_month: "2026-10", place_id: p1, jar_code: "222222222", is_labelled: true, n_occurrences: 1, found_on_roles: [home], first_url: "https://a.lt/", code_context: "kodas 222222222"}
+      - input: ref('int_page_company_codes_unmatched')
+        rows: []
+      - input: ref('stg_sodra')
+        rows:
+          - {run_id: s1, jar_code: "111111111", month: "2026-08-01", evrk_code: 56.11.00, company_name: UAB, source_url: "u", file_sha256: "h"}
+          - {run_id: s1, jar_code: "222222222", month: "2026-08-01", evrk_code: 56.11.00, company_name: UAB, source_url: "u", file_sha256: "h"}
+      - input: ref('int_run_pairs')
+        rows:
+          - {run_month: "2026-10", places_run_id: r1, sodra_run_id: s1}
+          - {run_month: "2026-09", places_run_id: r0, sodra_run_id: s1}
+      - input: ref('category_evrk')
+        rows:
+          - {category: cafes_restaurants, evrk_prefix: "56.11"}
+    expect:
+      rows:
+        - {place_id: p1, jar_code: "111111111", n_candidate_codes: 2, match_confidence: medium, match_confidence_reasons: ['multiple_codes']}
+
+  - name: confidence_low
+    model: int_places_matched
+    given:
+      - input: ref('stg_places')
+        rows:
+          - {run_month: "2026-10", place_id: p1, category: cafes_restaurants, name: Np1, user_rating_count: 5}
+      - input: ref('stg_web_pages')
+        rows:
+          - {run_month: "2026-10", place_id: p1, page_role: home, is_fetched: true, skip_reason: null}
+      - input: ref('int_page_company_codes')
+        rows:
+          - {run_month: "2026-10", place_id: p1, jar_code: "111111111", is_labelled: false, n_occurrences: 1, found_on_roles: [home], first_url: "https://a.lt/", code_context: "kodas 111111111"}
+      - input: ref('int_page_company_codes_unmatched')
+        rows: []
+      - input: ref('stg_sodra')
+        rows:
+          - {run_id: s1, jar_code: "111111111", month: "2026-08-01", evrk_code: 47.11.00, company_name: UAB, source_url: "u", file_sha256: "h"}
+      - input: ref('int_run_pairs')
+        rows:
+          - {run_month: "2026-10", places_run_id: r1, sodra_run_id: s1}
+          - {run_month: "2026-09", places_run_id: r0, sodra_run_id: s1}
+      - input: ref('category_evrk')
+        rows:
+          - {category: cafes_restaurants, evrk_prefix: "56.11"}
+    expect:
+      rows:
+        - {place_id: p1, match_confidence: low, match_confidence_reasons: ['no_label', 'evrk_mismatch']}
+
+  - name: confidence_evrk_unknown
+    model: int_places_matched
+    given:
+      - input: ref('stg_places')
+        rows:
+          - {run_month: "2026-10", place_id: p1, category: cafes_restaurants, name: Np1, user_rating_count: 5}
+      - input: ref('stg_web_pages')
+        rows:
+          - {run_month: "2026-10", place_id: p1, page_role: home, is_fetched: true, skip_reason: null}
+      - input: ref('int_page_company_codes')
+        rows:
+          - {run_month: "2026-10", place_id: p1, jar_code: "111111111", is_labelled: true, n_occurrences: 1, found_on_roles: [home], first_url: "https://a.lt/", code_context: "kodas 111111111"}
+      - input: ref('int_page_company_codes_unmatched')
+        rows: []
+      - input: ref('stg_sodra')
+        rows:
+          - {run_id: s1, jar_code: "111111111", month: "2026-08-01", evrk_code: null, company_name: UAB, source_url: "u", file_sha256: "h"}
+      - input: ref('int_run_pairs')
+        rows:
+          - {run_month: "2026-10", places_run_id: r1, sodra_run_id: s1}
+          - {run_month: "2026-09", places_run_id: r0, sodra_run_id: s1}
+      - input: ref('category_evrk')
+        rows:
+          - {category: cafes_restaurants, evrk_prefix: "56.11"}
+    expect:
+      rows:
+        - {place_id: p1, match_confidence: medium, match_confidence_reasons: ['evrk_unknown']}
+
+  - name: confidence_null_when_unmatched
+    model: int_places_matched
+    given:
+      - input: ref('stg_places')
+        rows:
+          - {run_month: "2026-10", place_id: p1, category: cafes_restaurants, name: Np1, user_rating_count: 5}
+      - input: ref('stg_web_pages')
+        rows:
+          - {run_month: "2026-10", place_id: p1, page_role: home, is_fetched: true, skip_reason: null}
+      - input: ref('int_page_company_codes')
+        rows: []
+      - input: ref('int_page_company_codes_unmatched')
+        rows: []
+      - input: ref('stg_sodra')
+        rows: []
+      - input: ref('int_run_pairs')
+        rows:
+          - {run_month: "2026-10", places_run_id: r1, sodra_run_id: s1}
+          - {run_month: "2026-09", places_run_id: r0, sodra_run_id: s1}
+      - input: ref('category_evrk')
+        rows:
+          - {category: cafes_restaurants, evrk_prefix: "56.11"}
+    expect:
+      rows:
+        - {place_id: p1, match_status: no_code_found, match_confidence: null, match_confidence_reasons: null, places_sharing_code: null, chain_user_rating_count: null}
+
+  - name: chain_two_places
+    model: int_places_matched
+    given:
+      - input: ref('stg_places')
+        rows:
+          - {run_month: "2026-10", place_id: p1, category: cafes_restaurants, name: Np1, user_rating_count: 120}
+          - {run_month: "2026-10", place_id: p2, category: cafes_restaurants, name: Np2, user_rating_count: null}
+          - {run_month: "2026-10", place_id: p3, category: cafes_restaurants, name: Np3, user_rating_count: 7}
+      - input: ref('stg_web_pages')
+        rows:
+          - {run_month: "2026-10", place_id: p1, page_role: home, is_fetched: true, skip_reason: null}
+          - {run_month: "2026-10", place_id: p2, page_role: home, is_fetched: true, skip_reason: null}
+          - {run_month: "2026-10", place_id: p3, page_role: home, is_fetched: true, skip_reason: null}
+      - input: ref('int_page_company_codes')
+        rows:
+          - {run_month: "2026-10", place_id: p1, jar_code: "111111111", is_labelled: true, n_occurrences: 1, found_on_roles: [home], first_url: "https://a.lt/", code_context: "kodas 111111111"}
+          - {run_month: "2026-10", place_id: p2, jar_code: "111111111", is_labelled: true, n_occurrences: 1, found_on_roles: [home], first_url: "https://a.lt/", code_context: "kodas 111111111"}
+      - input: ref('int_page_company_codes_unmatched')
+        rows: []
+      - input: ref('stg_sodra')
+        rows:
+          - {run_id: s1, jar_code: "111111111", month: "2026-08-01", evrk_code: 56.11.00, company_name: UAB, source_url: "u", file_sha256: "h"}
+      - input: ref('int_run_pairs')
+        rows:
+          - {run_month: "2026-10", places_run_id: r1, sodra_run_id: s1}
+          - {run_month: "2026-09", places_run_id: r0, sodra_run_id: s1}
+      - input: ref('category_evrk')
+        rows:
+          - {category: cafes_restaurants, evrk_prefix: "56.11"}
+    expect:
+      rows:
+        - {place_id: p1, places_sharing_code: 2, chain_user_rating_count: 120}
+        - {place_id: p2, places_sharing_code: 2, chain_user_rating_count: 120}
+        - {place_id: p3, places_sharing_code: null, chain_user_rating_count: null}
+
+  - name: chain_not_across_months
+    model: int_places_matched
+    given:
+      - input: ref('stg_places')
+        rows:
+          - {run_month: "2026-09", place_id: p1, category: cafes_restaurants, name: Np1, user_rating_count: 10}
+          - {run_month: "2026-10", place_id: p2, category: cafes_restaurants, name: Np2, user_rating_count: 20}
+      - input: ref('stg_web_pages')
+        rows:
+          - {run_month: "2026-09", place_id: p1, page_role: home, is_fetched: true, skip_reason: null}
+          - {run_month: "2026-10", place_id: p2, page_role: home, is_fetched: true, skip_reason: null}
+      - input: ref('int_page_company_codes')
+        rows:
+          - {run_month: "2026-09", place_id: p1, jar_code: "111111111", is_labelled: true, n_occurrences: 1, found_on_roles: [home], first_url: "https://a.lt/", code_context: "kodas 111111111"}
+          - {run_month: "2026-10", place_id: p2, jar_code: "111111111", is_labelled: true, n_occurrences: 1, found_on_roles: [home], first_url: "https://a.lt/", code_context: "kodas 111111111"}
+      - input: ref('int_page_company_codes_unmatched')
+        rows: []
+      - input: ref('stg_sodra')
+        rows:
+          - {run_id: s1, jar_code: "111111111", month: "2026-08-01", evrk_code: 56.11.00, company_name: UAB, source_url: "u", file_sha256: "h"}
+      - input: ref('int_run_pairs')
+        rows:
+          - {run_month: "2026-10", places_run_id: r1, sodra_run_id: s1}
+          - {run_month: "2026-09", places_run_id: r0, sodra_run_id: s1}
+      - input: ref('category_evrk')
+        rows:
+          - {category: cafes_restaurants, evrk_prefix: "56.11"}
+    expect:
+      rows:
+        - {run_month: "2026-09", place_id: p1, places_sharing_code: 1, chain_user_rating_count: 10}
+        - {run_month: "2026-10", place_id: p2, places_sharing_code: 1, chain_user_rating_count: 20}
