@@ -109,8 +109,13 @@ and per category in the seed `dbt/seeds/category_lead_rules.csv`: `min_reviews` 
 this and the company is excluded: 200 cafés and restaurants, 100 hair and beauty, 50 car service), a
 `caveat` shown on the lead card and a display `label`.
 
+Thresholds apply to all months on every rebuild: changing a var re-tiers past months and changes
+`prev_tier`, while files already written under `output/` keep the thresholds of their export time.
+The minimum wage is a single var, not one per year.
+
 To try another value without editing files, override a var on the command line (or edit the vars
-or the seed and rebuild):
+or the seed and rebuild). This rebuilds the real `marts.mart_leads` with that value until the next
+default build:
 
 ```
 uv run dbt build --project-dir dbt --profiles-dir dbt --vars '{busy_multiple: 1.5}'
@@ -186,7 +191,7 @@ run_month  tier   reviews_per_employee  num_insured  avg_wage
 Known limitations:
 
 - A category median over a handful of companies is a weak yardstick. Only cafés and restaurants reach
-  `min_peers` on the demo data; hair and beauty and car service are always `clear`, never "busy".
+  `min_peers` on the demo data; their eligible hair and beauty and car service companies are always `clear`, never "busy".
 - Reviews per employee is a rough measure: tourist-heavy places, and stylists who rent a chair as
   self-employed, distort it. The card's `Note` line says which caveat applies.
 

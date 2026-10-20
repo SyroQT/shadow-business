@@ -37,7 +37,7 @@ def test_export_writes_both_files(db, tmp_path):
 
 def test_csv_has_every_row(db, tmp_path):
     export_leads(db, tmp_path, 0)
-    with (tmp_path / "2026-10" / "leads.csv").open(newline="") as f:
+    with (tmp_path / "2026-10" / "leads.csv").open(newline="", encoding="utf-8-sig") as f:
         data = list(csv.DictReader(f))
     con = duckdb.connect(str(db), read_only=True)
     cols = [r[0] for r in con.execute("describe marts.mart_leads").fetchall()]
@@ -143,7 +143,7 @@ def test_export_only_excluded(tmp_path):
     out = tmp_path / "out"
     export_leads(path, out, 10)
     text = (out / "2026-10" / "leads.md").read_text()
-    assert "excluded" in text
+    assert "| cafés and restaurants | 0 | 0 | 0 | 1 |" in text
     assert cards(text) == []
 
 
@@ -152,6 +152,91 @@ def test_card_places_and_minimum_wage_format(db, tmp_path):
     flag = next(c for c in cards(md(tmp_path)) if c.startswith("FLAG"))
     assert re.search(r"^  Places: Cafe 5 — \S+$", flag, re.M)
     assert "(€1153)" in flag
+
+
+def test_card_wage_multiple_two_decimals_and_sodra_month(db, tmp_path):
+    export_leads(db, tmp_path, 0)
+    flag = next(c for c in cards(md(tmp_path)) if c.startswith("FLAG"))
+    assert re.search(r"Paid:.*, \d\.\d\d× the minimum wage", flag)
+    assert re.search(r"data month \d{4}-\d{2}$", flag, re.M)
+
+
+def test_csv_order_leads_first_excluded_last(db, tmp_path):
+    export_leads(db, tmp_path, 0)
+    with (tmp_path / "2026-10" / "leads.csv").open(newline="", encoding="utf-8-sig") as f:
+        data = list(csv.DictReader(f))
+    assert data[0]["tier"] == "flag" and data[1]["tier"] == "watch"
+    tiers = [r["tier"] for r in data]
+    assert tiers.index("excluded") > max(i for i, t in enumerate(tiers) if t != "excluded")
+    assert (tmp_path / "2026-10" / "leads.csv").read_bytes().startswith(b"\xef\xbb\xbf")
+
+
+def test_md_heading_and_thresholds(db, tmp_path):
+    export_leads(db, tmp_path, 0)
+    lines = md(tmp_path).splitlines()
+    assert lines[0] == "# Leads — run 2026-10"
+    assert any(line.startswith("Thresholds: busy ≥ 2.0×") and "€1153" in line for line in lines)
+    assert "No flag or watch leads" not in "\n".join(lines)
+
+
+def test_md_no_leads_line(tmp_path):
+    path = tmp_path / "t.duckdb"
+    con = connect(path)
+    run = new_run("2026-10")
+    spec = [(300, "1500.00")] * 5
+    load(con, run,
+         places=[place(f"p{i}", "cafes_restaurants", f"Cafe {i}", website=f"https://c{i}.lt/",
+                       user_rating_count=r, rating=4.0) for i, (r, _) in enumerate(spec)],
+         pages=[page(f"p{i}", "home", f"Įmonės kodas: 10000000{i}", url=f"https://c{i}.lt/")
+                for i in range(5)],
+         sodra=[sodra(f"10000000{i}", num_insured="10", avg_wage=w)
+                for i, (_, w) in enumerate(spec)],
+         steps={"places": "ok", "sodra": "ok"})
+    con.close()
+    build(path)
+    export_leads(path, tmp_path / "out", 0)
+    text = (tmp_path / "out" / "2026-10" / "leads.md").read_text()
+    assert "No flag or watch leads this month." in text
+    assert cards(text) == []
+
+
+def test_export_skips_latest_month_without_matches(tmp_path):
+    path = tmp_path / "t.duckdb"
+    con = connect(path)
+    load_lead_demo(con, new_run("2026-10"))
+    load(con, new_run("2026-11"),
+         places=[place("n1", "cafes_restaurants", "Nocode", website="https://n.lt/",
+                       user_rating_count=500, rating=4.0)],
+         pages=[page("n1", "home", "Nieko čia nėra", url="https://n.lt/")],
+         steps={"places": "ok", "sodra": "ok"})
+    con.close()
+    build(path)
+    out = tmp_path / "out"
+    assert export_leads(path, out, 0) is None
+    assert not out.exists()
+
+
+def test_main_missing_db_returns_one(tmp_path, monkeypatch, capsys):
+    from types import SimpleNamespace
+
+    from src import export
+    monkeypatch.setattr(export, "load_settings_or_exit",
+                        lambda: SimpleNamespace(db_path=tmp_path / "nope.duckdb", leads_top_n=0))
+    assert export.main(["--out", str(tmp_path / "o")]) == 1
+    err = capsys.readouterr().err
+    assert "cannot export" in err and "Traceback" not in err
+
+
+def test_main_db_without_mart_returns_one(tmp_path, monkeypatch, capsys):
+    from types import SimpleNamespace
+
+    from src import export
+    path = tmp_path / "empty.duckdb"
+    connect(path).close()
+    monkeypatch.setattr(export, "load_settings_or_exit",
+                        lambda: SimpleNamespace(db_path=path, leads_top_n=0))
+    assert export.main(["--out", str(tmp_path / "o")]) == 1
+    assert "cannot export" in capsys.readouterr().err
 
 
 def _main_calls(monkeypatch, result):
