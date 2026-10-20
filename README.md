@@ -107,7 +107,9 @@ Thresholds are dbt vars in `dbt/dbt_project.yml`:
 
 and per category in the seed `dbt/seeds/category_lead_rules.csv`: `min_reviews` (fewer reviews than
 this and the company is excluded: 200 cafés and restaurants, 100 hair and beauty, 50 car service), a
-`caveat` shown on the lead card and a display `label`. To try another value without editing files, override a var on the command line (or edit the vars
+`caveat` shown on the lead card and a display `label`.
+
+To try another value without editing files, override a var on the command line (or edit the vars
 or the seed and rebuild):
 
 ```
@@ -166,7 +168,8 @@ order by run_month, jar_code;
 (0 rows)
 ```
 
-3. One company over time (here the top `watch` lead; there is only one month of data so far):
+3. One company over time. Take the `jar_code` from a card in `leads.md` (here the top WATCH card,
+   "Match: company code ..."); there is only one month of data so far:
 
 ```sql
 select run_month, tier, reviews_per_employee, num_insured, avg_wage

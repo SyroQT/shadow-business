@@ -211,4 +211,11 @@ README.md                                 # Leads section
 
 ## Verification
 
-(filled in by Task 5)
+Real DB, run 2026-10:
+
+- `uv run pytest -q`: 236 passed, 2 skipped. `dbt build`: PASS=167 WARN=0 ERROR=0.
+- 30 companies, 18 eligible, 12 excluded. Tiers (flag/watch/clear/excluded): cafes_restaurants 0/2/12/3, car_service 0/0/2/6, hair_beauty 0/0/2/3.
+- `--top 10` cards (tier, company, rpe_vs_median):
+  WATCH 1 MAISTO INOVACIJOS 2.1x; WATCH 2 SENASIS LOKYS 2.0x;
+  CLEAR 1 CULT OF BEAUTY 1.7x; 2 MOMO VILNIUS 1.5x; 3 DEACAR 1.2x; 4 RIMTAS REIKALAS 1.1x;
+  5 PLIUSAI 1.1x; 6 AUGUSTINO NAMAI 1.1x; 7 RESTORANU GRUPE FORTAS 1.0x; 8 BELGAS 1.0x.
