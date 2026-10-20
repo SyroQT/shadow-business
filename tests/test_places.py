@@ -11,6 +11,7 @@ from src.extract.places import (
     build_body,
     run_places,
     search_tile,
+    worst_case_requests,
 )
 from src.extract.tiles import Tile
 from src.run import new_run
@@ -190,7 +191,7 @@ def test_cap_mid_chain_lands_fetched_pages(con, tmp_path):
     stats = run_places(con, client, cfg, RUN)
     assert len(calls) == 2 and stats.status == "capped"
     assert len(rows(con)) == 40
-    assert "unqueried_tiles=1" in stats.notes
+    assert "cat:unqueried_tiles=1" in stats.notes
 
 
 def test_auth_error_propagates_from_search_tile(tmp_path):
@@ -251,18 +252,42 @@ def test_cap_mid_tree_stops_cleanly(con, tmp_path):
     status, items_ok, _, api, _, notes = log_row(con)
     assert status == "capped" and api == 5 == len(calls)
     assert items_ok == 60 and len(rows(con)) == 60
-    assert "unqueried_tiles=" in notes and "cat:saturated_tiles=" in notes
+    assert "cat:unqueried_tiles=" in notes and "cat:saturated_tiles=" in notes
     assert stats.status == "capped"
 
 
 def test_cap_counts_remaining_roots(con, tmp_path):
     client, _ = make_client(tmp_path, partial_page, max_requests=1)
-    cfg = config({"a": ["cafe", "bar"], "b": ["cafe"]}, min_tile_km=1.0)
+    cfg = config({"a": ["cafe", "bar"], "b": ["restaurant"]}, min_tile_km=1.0)
     stats = run_places(con, client, cfg, RUN)
-    # 1 request lands tile 1 of a/cafe; a/bar and b/cafe (1 root each) remain
-    # (cap hits when a/bar is first requested, so it counts as unqueried too)
-    assert "unqueried_tiles=2" in stats.notes
+    # a's share (1 of 1) lands a/cafe; a/bar is unqueried; b's share is 0
+    assert "a:unqueried_tiles=1" in stats.notes and "b:unqueried_tiles=1" in stats.notes
     assert stats.items_ok == 7
+
+
+def test_cap_shared_per_category(con, tmp_path):
+    """A saturating category stops at its share; the next category still runs."""
+    client, calls = make_client(tmp_path, full_page, max_requests=4)
+    stats = run_places(con, client, config({"a": ["cafe"], "b": ["bar"]}, min_tile_km=1.0), RUN)
+    per = dict(con.execute("select category, count(*) from raw.places group by 1").fetchall())
+    assert len(calls) == 4 and set(per) == {"a", "b"}
+    assert "a:unqueried_tiles=1" in stats.notes and "b:unqueried_tiles=1" in stats.notes
+    assert client.max_requests == 4  # restored after the run
+
+
+def test_cap_unused_share_carries_forward(con, tmp_path):
+    client, calls = make_client(tmp_path, partial_page, max_requests=3)
+    stats = run_places(con, client, config({"a": ["cafe"], "b": ["bar", "restaurant"]},
+                                           min_tile_km=1.0), RUN)
+    # a needs 1 of its 2; b gets the remaining 2 for its two types
+    assert len(calls) == 3 and stats.status is None
+
+
+def test_worst_case_requests():
+    # one 1 km root (BBOX), split to 0.5 km: 1 + 4 tiles, 3 pages each, per type
+    assert worst_case_requests(config({"a": ["cafe", "bar"], "b": ["cafe"]})) == 1 * 3 * 5 * 3
+    assert worst_case_requests(config({"a": ["cafe"]}, min_tile_km=1.0)) == 3
+    assert worst_case_requests(config({"a": ["cafe"], "b": ["bar"]}), ["b"]) == 15
 
 
 def test_rows_carry_page_retrieved_at_and_hash(con, tmp_path):

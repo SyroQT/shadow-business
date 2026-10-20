@@ -103,6 +103,21 @@ def search_tile(client: SourceClient, included_type: str, tile: Tile) -> TileRes
     return TileResult(places=places, saturated=len(places) >= MAX_RESULTS)
 
 
+def worst_case_requests(config: AppConfig, categories: list[str] | None = None) -> int:
+    """Upper bound on Places requests for one run: every tile saturates and splits down to
+    min_tile_km, each tile using all MAX_PAGES pages. (A stale-pageToken refetch can add a
+    chain in rare cases; the per-category cap still holds.)"""
+    area = config.area
+    levels, size = 1, area.tile_km
+    while size / 2 >= area.min_tile_km:
+        size /= 2
+        levels += 1
+    tiles_per_root = (4 ** levels - 1) // 3
+    names = categories if categories is not None else list(config.categories)
+    types = sum(len(config.categories[c].places_included_type) for c in names)
+    return len(root_tiles(area.bbox, area.tile_km)) * types * tiles_per_root * MAX_PAGES
+
+
 def run_places(
     con: duckdb.DuckDBPyConnection,
     client: SourceClient,
@@ -125,66 +140,78 @@ def run_places(
 
 
 def _run_work(con, client, config, run, stats, names, work, roots) -> None:
+    """Categories in turn; with a request cap, each gets an equal share of what is left, so a
+    dense category cannot starve the next ones (unused share carries forward)."""
+    cap = client.max_requests
+    try:
+        for i, cat in enumerate(names):
+            if cap is not None:
+                left = cap - client.api_requests
+                client.max_requests = client.api_requests + -(-left // (len(names) - i))
+            _run_category(con, client, config, run, stats, cat, work, roots)
+    finally:
+        client.max_requests = cap
+
+
+def _run_category(con, client, config, run, stats, cat, work, roots) -> None:
     min_km = config.area.min_tile_km
-    for cat in names:
-        seen: set[str] = set()
-        rows: list[dict] = []
-        errors: list[dict] = []
-        saturated = gaps = 0
-        capped_at: int | None = None
+    seen: set[str] = set()
+    rows: list[dict] = []
+    errors: list[dict] = []
+    saturated = gaps = 0
+    capped_at: int | None = None
 
-        def add(tile, places, seen=seen, rows=rows, cat=cat):
-            for pid, place, rh, at in places:
-                if pid in seen:
-                    continue
-                seen.add(pid)
-                rows.append({"category": cat, "tile_id": tile.tile_id, "request_hash": rh,
-                             "place_id": pid, "payload": place, "retrieved_at": at})
+    def add(tile, places, seen=seen, rows=rows, cat=cat):
+        for pid, place, rh, at in places:
+            if pid in seen:
+                continue
+            seen.add(pid)
+            rows.append({"category": cat, "tile_id": tile.tile_id, "request_hash": rh,
+                         "place_id": pid, "payload": place, "retrieved_at": at})
 
-        queue: list[Tile] = []
-        try:
-            for idx, (c, ptype) in enumerate(work):
-                if c != cat:
-                    continue
-                queue = list(roots)
-                try:
-                    while queue:
-                        tile = queue[0]
-                        try:
-                            res = search_tile(client, ptype, tile)
-                        except CapWithPartial as e:
-                            add(tile, e.places)  # land pages fetched before the cap
-                            raise
-                        queue.pop(0)
-                        add(tile, res.places)
-                        if res.error:
-                            status, msg, rh = res.error
-                            errors.append({"category": cat, "tile_id": tile.tile_id,
-                                           "request_hash": rh, "http_status": status, "error": msg})
-                            log("places_error", category=cat, type=ptype, tile_id=tile.tile_id,
-                                http_status=status)
-                        if res.saturated:
-                            saturated += 1
-                            log("tile_saturated", category=cat, type=ptype, tile_id=tile.tile_id,
+    queue: list[Tile] = []
+    try:
+        for idx, (c, ptype) in enumerate(work):
+            if c != cat:
+                continue
+            queue = list(roots)
+            try:
+                while queue:
+                    tile = queue[0]
+                    try:
+                        res = search_tile(client, ptype, tile)
+                    except CapWithPartial as e:
+                        add(tile, e.places)  # land pages fetched before the cap
+                        raise
+                    queue.pop(0)
+                    add(tile, res.places)
+                    if res.error:
+                        status, msg, rh = res.error
+                        errors.append({"category": cat, "tile_id": tile.tile_id,
+                                       "request_hash": rh, "http_status": status, "error": msg})
+                        log("places_error", category=cat, type=ptype, tile_id=tile.tile_id,
+                            http_status=status)
+                    if res.saturated:
+                        saturated += 1
+                        log("tile_saturated", category=cat, type=ptype, tile_id=tile.tile_id,
+                            size_km=tile.size_km)
+                        if tile.size_km / 2 >= min_km:
+                            queue.extend(split(tile))
+                        else:
+                            gaps += 1
+                            log("coverage_gap", category=cat, type=ptype, tile_id=tile.tile_id,
                                 size_km=tile.size_km)
-                            if tile.size_km / 2 >= min_km:
-                                queue.extend(split(tile))
-                            else:
-                                gaps += 1
-                                log("coverage_gap", category=cat, type=ptype, tile_id=tile.tile_id,
-                                    size_km=tile.size_km)
-                except CapReached:
-                    capped_at = idx
-                    break
-        finally:  # land rows already fetched even on AuthError / unexpected errors
-            stats.items_ok += insert_rows(con, "places", rows, run)
-            stats.items_failed += insert_rows(con, "places_errors", errors, run)
-            stats.notes += [f"{cat}:saturated_tiles={saturated}", f"{cat}:coverage_gaps={gaps}"]
-        if capped_at is not None:
-            remaining = len(queue) + len(roots) * len(work[capped_at + 1:])
-            stats.notes.append(f"unqueried_tiles={remaining}")
-            stats.status = "capped"
-            return
+            except CapReached:
+                capped_at = idx
+                break
+    finally:  # land rows already fetched even on AuthError / unexpected errors
+        stats.items_ok += insert_rows(con, "places", rows, run)
+        stats.items_failed += insert_rows(con, "places_errors", errors, run)
+        stats.notes += [f"{cat}:saturated_tiles={saturated}", f"{cat}:coverage_gaps={gaps}"]
+    if capped_at is not None:
+        later = [w for w in work[capped_at + 1:] if w[0] == cat]
+        stats.notes.append(f"{cat}:unqueried_tiles={len(queue) + len(roots) * len(later)}")
+        stats.status = "capped"
 
 
 def note_int(notes: str | None, category: str, key: str) -> int:

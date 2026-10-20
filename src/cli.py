@@ -11,21 +11,29 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 from src.budget import format_budgets, plan_budgets, used_this_month
-from src.settings import load_settings_or_exit
+from src.settings import load_config, load_settings_or_exit
 
 
 def cmd_full(dry_run: bool) -> int:
     from src import pipeline
+    from src.extract.places import worst_case_requests
 
     settings = load_settings_or_exit()
     budgets = plan_budgets(settings, used_this_month(settings.db_path, datetime.now(UTC)))
+    worst = worst_case_requests(load_config(settings.config_path))
     if dry_run:
         print("\n".join(format_budgets(budgets)))
+        print(f"places worst case: {worst} requests for {settings.config_path}")
         return 0
     exhausted = [(api, b) for api, b in budgets.items() if b.cap <= 0]
     for api, b in exhausted:
         print(f"full: {api} free tier used up this month ({b.used} of {b.free})", file=sys.stderr)
     if exhausted:
+        return 2
+    if worst > budgets["places"].cap:
+        print(f"full: places worst case {worst} requests exceeds the run cap "
+              f"{budgets['places'].cap}; shrink area.bbox or raise area.min_tile_km in "
+              f"{settings.config_path}", file=sys.stderr)
         return 2
     capped = settings.model_copy(update={"max_places_requests": budgets["places"].cap,
                                          "max_firecrawl_pages": budgets["firecrawl"].cap})
