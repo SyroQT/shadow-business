@@ -1,0 +1,29 @@
+# Usage: README "Quick start" and "Run types".
+x-app: &app
+  image: oxylabs-leads
+  build: .
+
+services:
+  demo:
+    <<: *app
+    entrypoint: ["python", "-m", "src.cli", "demo"]
+    volumes:
+      - ./output:/app/output
+
+  full:
+    <<: *app
+    entrypoint: ["python", "-m", "src.cli", "full"]
+    env_file:
+      - path: .env
+        required: false
+    volumes:
+      - ./data:/app/data
+      - ./output:/app/output
+      - ./snapshots:/app/snapshots
+
+  snapshot:
+    <<: *app
+    entrypoint: ["python", "-m", "src.cli", "snapshot"]
+    volumes:
+      - ./data:/app/data
+      - ./snapshots:/app/snapshots

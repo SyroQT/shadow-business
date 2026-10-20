@@ -1,33 +1,34 @@
-"""Entrypoint: extract -> dbt build -> export."""
+"""Live run body for `python -m src.cli full`: extract -> dbt build -> export."""
 import sys
 import time
+from pathlib import Path
 
-from src.extract.__main__ import main as extract_main
+from src.export import export_leads
+from src.extract.__main__ import extract_run
 from src.log import log
-from src.settings import load_settings_or_exit
-from src.transform import run_dbt
-
-STDOUT_TAIL_LINES = 40
+from src.settings import Settings
+from src.transform import run_dbt, stdout_tail
 
 
-def main() -> int:
-    code = extract_main(["all"])
+def run(settings: Settings) -> tuple[int, str]:
+    """Returns (exit code, run_id of the extraction)."""
+    code, run_id = extract_run(settings)
     if code != 0:
         log("step", step="dbt", status="skipped", reason="extract_failed")
-        return code
-    settings = load_settings_or_exit()
+        return code, run_id
     started = time.monotonic()
     result = run_dbt(["build"], settings.db_path)
     duration = round(time.monotonic() - started, 1)
     ok = result.returncode == 0
     log("step", step="dbt", status="ok" if ok else "failed", duration_s=duration)
     if not ok:
-        tail = (result.stdout or "").splitlines()[-STDOUT_TAIL_LINES:]
-        print("\n".join(tail), file=sys.stderr)
-        return 1
-    log("not_implemented", step="export", message="export is not implemented yet")
-    return 0
-
-
-if __name__ == "__main__":
-    sys.exit(main())
+        print(stdout_tail(result), file=sys.stderr)
+        return 1, run_id
+    try:
+        path = export_leads(settings.db_path, Path("output"), settings.leads_top_n)
+    except Exception as exc:
+        log("step", step="export", status="failed", error=f"{type(exc).__name__}: {exc}")
+        return 1, run_id
+    log("step", step="export", status="ok" if path else "no_rows",
+        path=str(path) if path else None)
+    return 0, run_id

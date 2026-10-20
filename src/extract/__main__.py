@@ -95,6 +95,17 @@ def _exit_code(statuses: dict[str, str]) -> int:
     return 1 if "failed" in statuses.values() else 0
 
 
+def extract_run(settings: Settings) -> tuple[int, str]:
+    """`extract all` with the given settings; returns (exit code, run_id)."""
+    config = load_config(settings.config_path)
+    con = connect(settings.db_path)
+    try:
+        run = new_run(settings.run_month)
+        return _exit_code(extract_all(settings, config, con, run, build_clients(settings))), run.run_id
+    finally:
+        con.close()
+
+
 def _latest_places_run(con: duckdb.DuckDBPyConnection, run_month: str) -> str | None:
     row = con.execute(
         "select run_id from raw.run_log where step = 'places' and run_month = ?"
@@ -156,14 +167,11 @@ def main(argv: list[str] | None = None) -> int:
         return places.main(fwd)
 
     settings = load_settings_or_exit()
+    if args.cmd == "all":
+        return extract_run(settings)[0]
     config = load_config(settings.config_path)
     con = connect(settings.db_path)
     try:
-        if args.cmd == "all":
-            run = new_run(settings.run_month)
-            statuses = extract_all(settings, config, con, run, build_clients(settings))
-            return _exit_code(statuses)
-
         # crawl
         if args.run_id:
             run = _run_for_id(args.run_id)

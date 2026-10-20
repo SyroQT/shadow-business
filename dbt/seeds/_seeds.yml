@@ -18,3 +18,37 @@ seeds:
       - unique_combination:
           arguments:
             columns: [category, evrk_prefix]
+
+  - name: category_lead_rules
+    description: >
+      Per-category lead rules (minimum reviews, analyst caveat, display label).
+      One row per category in config/categories.yaml (a pytest test keeps them in sync).
+    config:
+      column_types:
+        category: varchar
+        min_reviews: integer
+        caveat: varchar
+        label: varchar
+    columns:
+      - name: category
+        data_tests: [unique, not_null]
+      - name: min_reviews
+        data_tests: [not_null]
+      - name: caveat
+        data_tests: [not_null]
+      - name: label
+        data_tests: [not_null]
+
+  - name: minimum_wage
+    description: >
+      Lithuanian minimum monthly wage (MMA) per calendar year, EUR. A lead's Sodra month
+      is judged against its own year's value; add a row each January.
+    config:
+      column_types:
+        year: integer
+        min_monthly_wage: integer
+    columns:
+      - name: year
+        data_tests: [unique, not_null]
+      - name: min_monthly_wage
+        data_tests: [not_null]
