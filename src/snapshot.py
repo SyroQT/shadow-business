@@ -7,9 +7,11 @@ from pathlib import Path
 import duckdb
 
 SNAPSHOT_ROOT = Path("snapshots")
+KEY_RE = r"AIza[0-9A-Za-z_-]{20,}|fc-[0-9a-f]{20,}"
+REDACTED = "[redacted-key]"
 TABLES = ("places", "places_errors", "web_pages", "sodra", "run_log")
 NOTE = ("Google Places content is a small demo sample; local Sodra file paths are reduced "
-        "to the file name.")
+        "to the file name; key-shaped strings in crawled pages are redacted.")
 
 
 class SnapshotError(Exception):
@@ -43,8 +45,14 @@ def _select(con: duckdb.DuckDBPyConnection, run_id: str, run_month: str) -> None
                 [run_id])
     con.execute("create temp table s_places_errors as "
                 "select * from src.raw.places_errors where run_id = ?", [run_id])
-    con.execute("create temp table s_web_pages as "
-                "select * from src.raw.web_pages where run_id = ?", [run_id])
+    # Crawled pages can embed the site's own Google Maps key; redact key-shaped strings so a
+    # public snapshot never carries one (matching only reads standalone 9-digit codes).
+    con.execute(f"""
+        create temp table s_web_pages as
+        select * replace (
+            regexp_replace(markdown, {_q(KEY_RE)}, {_q(REDACTED)}, 'g') as markdown,
+            regexp_replace(links::varchar, {_q(KEY_RE)}, {_q(REDACTED)}, 'g')::json as links)
+        from src.raw.web_pages where run_id = ?""", [run_id])
     con.execute("""
         create temp table s_run_log as
         select * from src.raw.run_log

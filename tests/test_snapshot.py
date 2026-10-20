@@ -70,3 +70,17 @@ def test_snapshot_no_key_patterns(db, tmp_path):
         text = repr(duckdb.sql(f"select * from '{f}'").fetchall())
         assert not KEY_PATTERNS.search(text), f.name
     assert not KEY_PATTERNS.search((out / "manifest.json").read_text())
+
+
+def test_snapshot_redacts_page_keys(tmp_path):
+    from src.db import insert_rows
+    from tests.dbt_harness import page
+    db = built_lead_db(tmp_path / "t.duckdb")
+    con = connect(db)
+    fake = "AIza" + "x" * 35
+    insert_rows(con, "web_pages", [page("demo1", "legal_candidate",
+                                        f"![map](https://maps.googleapis.com/x?key={fake})")], RUN)
+    con.close()
+    out = write_snapshot(db, None, tmp_path / "s")
+    text = repr(duckdb.sql(f"select * from '{out / 'web_pages.parquet'}'").fetchall())
+    assert fake not in text and "key=[redacted-key]" in text
