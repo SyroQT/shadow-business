@@ -768,8 +768,8 @@ dev = [
 
 [package.metadata]
 requires-dist = [
-    { name = "dbt-core", specifier = ">=1.12.6" },
-    { name = "dbt-duckdb", specifier = ">=1.11.0" },
+    { name = "dbt-core", specifier = ">=1.12.6,<2" },
+    { name = "dbt-duckdb", specifier = ">=1.11.0,<2" },
     { name = "duckdb", specifier = ">=1.5.6" },
     { name = "httpx", specifier = ">=0.28.1" },
     { name = "pydantic-settings", specifier = ">=2.16.0" },

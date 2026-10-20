@@ -35,6 +35,20 @@ def test_run_pairs_fallback(tmp_path):
     ]
 
 
+def test_run_pairs_greatest_earlier_and_ignores_later(tmp_path):
+    aug, sep, octo, nov = (_run(m) for m in ("2026-08", "2026-09", "2026-10", "2026-11"))
+    steps = {"sodra": "ok"}
+    db = _db(tmp_path, [
+        (aug, {"sodra": [sodra("111111111")], "steps": steps}),
+        (sep, {"sodra": [sodra("111111111")], "steps": steps}),
+        (octo, {"places": [place("p1", CAT, "A")], "steps": {"places": "ok"}}),
+        (nov, {"sodra": [sodra("111111111")], "steps": steps}),
+    ])
+    assert rows(db, """select run_month, sodra_run_id
+                       from intermediate.int_run_pairs order by 1""") == [
+        ("2026-10", sep.run_id)]
+
+
 def test_run_pairs_no_sodra(tmp_path):
     sep = _run("2026-09")
     db = _db(tmp_path, [(sep, {"places": [place("p1", CAT, "A")]})])

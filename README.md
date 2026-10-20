@@ -32,7 +32,7 @@ dbt (DuckDB) turns `raw.*` into matched places. Run from the repo root; `DB_PATH
 
 ```
 uv run dbt build --project-dir dbt --profiles-dir dbt                # seeds, models, tests
-uv run dbt build --project-dir dbt --profiles-dir dbt --select int_places_matched+   # one model
+uv run dbt build --project-dir dbt --profiles-dir dbt --select +int_places_matched   # that model and everything upstream
 ```
 
 `python -m src.pipeline` runs `extract all`, then the same `dbt build`. dbt is skipped and the
@@ -42,16 +42,23 @@ Models:
 
 - `stg_places` (view): one row per place and category from each month's selected places run.
 - `stg_web_pages` (view): crawled pages (markdown, status, skip reason) of the selected run.
-- `stg_sodra` (view): Sodra companies of the selected Sodra run, with trimmed `jar_code` and EVRK.
+- `stg_sodra` (view): Sodra companies of each month's selected Sodra run, with trimmed `jar_code` and EVRK.
 - `category_evrk` (seed): EVRK code prefixes that count as a fit for each category.
 - `int_run_pairs`: per places month, the Sodra run to join (same month, else latest earlier).
 - `int_page_code_hits`: every standalone 9-digit number on a page, with its label context.
-- `int_page_company_codes`: labelled company codes found on pages that exist in Sodra.
+- `int_page_company_codes`: company codes (labelled or not) found on a place's pages that exist in the paired Sodra run.
 - `int_page_company_codes_unmatched`: labelled codes found on pages that are not in Sodra.
 - `int_places_matched`: one row per place and month with `match_status`, `match_confidence`
   and the attached Sodra company.
 
 DuckDB allows one writer: do not run dbt while extraction is running (and vice versa).
+
+Known limitations:
+
+- Re-running `extract crawl` for the same run appends page rows again, so `pages_fetched` and
+  `n_occurrences` are inflated (status and confidence are usually unchanged). Deduplication is a planned spec change.
+- Staging views reference the DB file name as their catalog (dbt-duckdb behaviour). After copying or
+  renaming the `.duckdb` file, re-run `dbt build` before querying `staging.*`.
 
 Match rate on the current DB:
 

@@ -128,7 +128,7 @@ Extraction, from `stg_web_pages` where `is_fetched`:
 2. For each hit, look at the 40 characters before it. The hit is **labelled** when that window matches `(?i)(įmonės|imones)\s+kodas|\bkodas\b|įm\.\s*k\.|company\s+code|juridinio asmens kodas`.
 3. Keep only hits that exist in `stg_sodra.jar_code` for the Sodra run paired with that month (`int_run_pairs`), in any data month of that file. This validation removes phone numbers (`8 6xx xxxxx` style), order numbers and similar noise.
 
-Columns: `run_month`, `place_id`, `jar_code`, `is_labelled` (true if any occurrence was labelled), `n_occurrences`, `found_on_roles` (`VARCHAR[]` of distinct `page_role`), `first_url` (the `final_url` of one page it was found on, preferring `legal_candidate`), `code_context`.
+Columns: `run_month`, `place_id`, `jar_code`, `is_labelled` (true if any occurrence was labelled), `n_occurrences`, `found_on_roles` (`VARCHAR[]` of distinct `page_role`), `first_url` (the `final_url` of the same preferred occurrence as `code_context`: labelled first, then `legal_candidate`, then earliest), `code_context`.
 
 `code_context` is the evidence an analyst reads instead of opening the site: up to 40 characters before and 40 after one occurrence, with newlines collapsed to spaces. Use a labelled occurrence if there is one, preferring `legal_candidate` pages, then the earliest position. Example: `UAB „Virtuvės kava“, įmonės kodas 306238879, PVM kodas LT…`.
 
