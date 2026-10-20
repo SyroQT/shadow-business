@@ -1,0 +1,34 @@
+# Reviewer:  docker compose run --rm demo       (no keys, no network calls; writes ./output)
+# Author:    docker compose run --rm full       (live run within the free tiers; keys from .env)
+#            docker compose run --rm full --dry-run
+#            docker compose run --rm snapshot --run-id <run_id>
+services:
+  demo:
+    build: .
+    image: oxylabs-leads
+    entrypoint: ["python", "-m", "src.cli", "demo"]
+    command: []
+    volumes:
+      - ./output:/app/output
+
+  full:
+    image: oxylabs-leads
+    build: .
+    entrypoint: ["python", "-m", "src.cli", "full"]
+    command: []
+    env_file:
+      - path: .env
+        required: false
+    volumes:
+      - ./data:/app/data
+      - ./output:/app/output
+      - ./snapshots:/app/snapshots
+
+  snapshot:
+    image: oxylabs-leads
+    build: .
+    entrypoint: ["python", "-m", "src.cli", "snapshot"]
+    command: []
+    volumes:
+      - ./data:/app/data
+      - ./snapshots:/app/snapshots

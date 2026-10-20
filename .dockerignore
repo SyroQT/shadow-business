@@ -1,0 +1,14 @@
+.env
+.env.*
+.git
+.venv
+data
+output
+examples
+docs
+tests
+**/__pycache__
+dbt/target
+dbt/logs
+dbt/dbt_packages
+.superpowers

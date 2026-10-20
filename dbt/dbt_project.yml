@@ -30,3 +30,6 @@ vars:
   low_wage_margin: 0.10    # "near" the minimum: avg_wage <= minimum wage (seed minimum_wage) * 1.10
   busy_multiple: 2.0       # busy = at least this multiple of the category median reviews per employee
   min_peers: 5             # fewest eligible companies in a category for its median to count
+
+flags:
+  send_anonymous_usage_stats: false   # the demo promises no network calls

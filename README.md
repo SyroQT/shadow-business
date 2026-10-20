@@ -1,6 +1,51 @@
 # Lead extraction
 
-## How to run
+## Quick start (demo, no keys)
+
+```bash
+docker compose run --rm demo          # or: uv run python -m src.cli demo
+```
+
+This rebuilds the lead list offline from the committed snapshot
+`snapshots/2026-10_20261019T173429/` (171 Google Places results, 3 categories, Vilnius). It
+writes `output/2026-10/leads.csv` and `leads.md`, identical to `examples/2026-10/`, in about
+10 s. It needs no `.env`, makes no network calls and uses its own `data/demo.duckdb`. Read
+[`examples/README.md`](examples/README.md) to see the result without running anything.
+
+## Run types
+
+| Command | Who | What |
+|---|---|---|
+| `python -m src.cli demo [--snapshot DIR] [--out DIR] [--top N]` | reviewer | snapshot → fresh DuckDB → dbt build → export; offline |
+| `python -m src.cli full [--dry-run]` | author, with keys | live extract → dbt → export within the free tiers, then saves a snapshot |
+| `python -m src.cli snapshot [--run-id ID] [--out DIR] [--force]` | author | saves an existing run of `data/leads.duckdb` as parquet; no API calls |
+
+**`full` and the free tiers**
+- Before any API call, `full` sums `raw.run_log.api_requests` for the current UTC calendar month. It then caps the run at `min(MAX_*, free tier - used)`.
+  - Places: `PLACES_FREE_TIER=1000` requests.
+  - Firecrawl: `FIRECRAWL_FREE_TIER=1000` credits.
+- If either is used up, it exits 2 without calling anything. `--dry-run` prints the numbers and stops.
+- Only runs logged in this database are counted. Cache hits are free; spend from another machine is not seen.
+
+**Snapshots**
+- `snapshot` writes the run's `raw.places`, `places_errors`, `web_pages` and `run_log` rows, plus only the Sodra rows for company codes found on its pages, with a `manifest.json`.
+- Local Sodra file paths are reduced to the file name. Key-shaped strings in crawled pages are redacted; some sites embed their own Maps keys.
+- `demo` uses the newest snapshot by default. A test checks that `examples/` matches it; regenerate with `uv run python -m src.cli demo --out examples`.
+
+Docker (one image, `.env` is never copied into it):
+
+```bash
+docker compose build
+docker compose run --rm demo
+docker compose run --rm full --dry-run      # keys from .env at runtime; mounts ./data
+docker compose run --rm full
+docker compose run --rm snapshot --run-id 2026-10_20261019T173429
+```
+
+For `full` in Docker, set `SODRA_FILE` to a path under `data/`, for example
+`data/raw/sodra/monthly-2026.csv.zip`. The Sodra file is still downloaded by hand.
+
+## How to run each step
 
 Places extraction (needs `GOOGLE_API_KEY` in `.env`):
 
