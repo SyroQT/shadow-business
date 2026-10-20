@@ -111,6 +111,8 @@ A low wage **alone** never makes a lead: part-time work is legal and lowers the 
 
 `lead_rank`: within `(run_month, tier)`, ordered by `rpe_vs_median` desc, then `jar_code`. Analysts work `flag` from rank 1, then `watch`.
 
+`priority_rank`: one ranking over all **eligible** companies in a `run_month`: tier order (`flag`, `watch`, `clear`), then `rpe_vs_median` desc, then `jar_code`. Null for `excluded`. This is what `--top N` (§7) cuts. `rpe_vs_median` is computed whenever `peer_count >= 1`, even below `min_peers`, so small categories still rank; it just cannot make them `busy`.
+
 ---
 
 ## 5. Reason text
@@ -133,7 +135,7 @@ Columns of `mart_leads`:
 | group | columns |
 |---|---|
 | key | `run_month`, `jar_code` |
-| verdict | `tier`, `lead_rank`, `lead_reason`, `exclusion_reason`, `category_caveat`, `prev_tier` |
+| verdict | `tier`, `lead_rank`, `priority_rank`, `lead_reason`, `exclusion_reason`, `category_caveat`, `prev_tier` |
 | signals | `reviews_per_employee`, `peer_count`, `category_median_rpe`, `rpe_vs_median`, `is_busy`, `is_low_wage`, `wage_vs_minimum` |
 | public activity | `lead_category`, `n_places`, `chain_user_rating_count`, `places` |
 | declared activity | `company_name`, `evrk_code`, `evrk_name`, `sodra_month`, `num_insured`, `avg_wage`, `tax` |
@@ -150,7 +152,7 @@ Columns of `mart_leads`:
 `src/export.py`, called by `src/pipeline.py` after a successful `dbt build` (replacing the "export not implemented" log line). For the latest `run_month` it writes:
 
 - `output/<run_month>/leads.csv`: every `mart_leads` row (list columns joined with `; `);
-- `output/<run_month>/leads.md`: a summary table (companies per category × tier), then one card per `flag` and `watch` lead in rank order:
+- `output/<run_month>/leads.md`: a summary table (companies per category × tier), then one card per `flag` and `watch` lead in rank order, then, when `--top N` is given, cards for the remaining companies up to `priority_rank <= N` under a heading **"Closest to the threshold (not flagged)"**:
 
 ```
 FLAG #1  <company_name> (<lead_category>)                    run <run_month>
@@ -164,6 +166,10 @@ FLAG #1  <company_name> (<lead_category>)                    run <run_month>
   Note:   <category_caveat>
   Last month: <prev_tier or "not present">
 ```
+
+Each card shows the company's **real tier** (`FLAG`, `WATCH`, `CLEAR`) and its `lead_reason`. A `clear` card's reason says why it was not flagged (e.g. "1.5× the median; below the 2.0× threshold"). `--top` never relabels a company.
+
+Parameter: `python -m src.export [--top N]`; the pipeline passes `--top` from env `LEADS_TOP_N` (default `10`; `0` = flag and watch only). `--top` changes only how many cards are written, never the `mart_leads` table or the CSV, which always hold every row.
 
 `output/` is committed only for the example run (a later task); otherwise git-ignored.
 
@@ -194,13 +200,15 @@ Unit tests (`mart_leads`, `int_company_month`):
 - `lead_category` tie → alphabetically first;
 - `prev_tier` picks the latest earlier month, null for a new company.
 
-Python test for `src/export.py` on a tmp DuckDB built by the dbt harness: both files written, one card per flag/watch row, no card for `clear`/`excluded`.
+Python tests for `src/export.py` on a tmp DuckDB built by the dbt harness: both files written; `--top 0` writes one card per flag/watch row and none for `clear`/`excluded`; `--top N` adds `clear` cards up to `priority_rank <= N`, labelled `CLEAR`, under the "Closest to the threshold" heading; `excluded` never gets a card; the CSV is identical with and without `--top`.
+
+Unit test: `priority_rank` orders a `watch` above a `clear` with a higher `rpe_vs_median`, and is null for `excluded`.
 
 ---
 
 ## 9. Expected on the current data (sanity check, not a test)
 
-About 20 of 43 matched companies are eligible (14 cafés/restaurants, 4 car service, 2 hair/beauty). Only cafés/restaurants reach `min_peers`. The highest `rpe_vs_median` is about 2.1, and none of the busy companies has a low wage, so the expected result is **0 `flag`, about 2 `watch`**. Car service and hair/beauty come out `clear` with "too few comparable companies".
+About 20 of 43 matched companies are eligible (14 cafés/restaurants, 4 car service, 2 hair/beauty). Only cafés/restaurants reach `min_peers`. The highest `rpe_vs_median` is about 2.1, and none of the busy companies has a low wage, so the expected result is **0 `flag`, about 2 `watch`**. Car service and hair/beauty come out `clear` with "too few comparable companies". With the default `LEADS_TOP_N=10`, the demo output shows the 2 `watch` cards plus 8 `clear` cards closest to the threshold.
 
 That is the design working as intended (strict, few false positives), but it also shows the sample is the limit: the recorded demo covered a few tiles. A full Vilnius run of the three categories is what makes the peer medians meaningful. Report the real split in the plan's verification step.
 
