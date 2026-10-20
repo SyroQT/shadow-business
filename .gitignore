@@ -11,3 +11,8 @@ wheels/
 fixtures/*
 # Live API recordings (Google ToS: no long-term storage of Places content)
 tests/fixtures/recorded/
+# dbt
+dbt/target/
+dbt/logs/
+dbt/dbt_packages/
+dbt/.user.yml
