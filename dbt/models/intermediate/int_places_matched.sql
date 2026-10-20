@@ -97,6 +97,7 @@ select
     end as match_status,
     case when s.crawl_status = 'fetched' then k.jar_code end as jar_code,
     case when s.crawl_status = 'fetched' then k.is_labelled end as code_is_labelled,
+    -- not_fetched rows carry no code evidence: candidates are joined only when fetched, so 0.
     coalesce(k.n_candidate_codes, 0) as n_candidate_codes,
     case when s.crawl_status = 'fetched' then k.first_url end as code_source_url,
     case when s.crawl_status = 'fetched' then k.code_context end as code_context,
@@ -109,7 +110,7 @@ select
     d.avg_wage,
     d.tax,
     case
-        when d.jar_code is null then null
+        when d.jar_code is null or d.evrk_code is null then null
         else exists (
             select 1
             from evrk_prefixes as e
