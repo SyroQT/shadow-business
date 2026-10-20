@@ -7,5 +7,9 @@
     from {{ source('raw', 'run_log') }}
     where step = '{{ step }}'
       and status <> 'failed'
+      {%- if step == 'sodra' %}
+      {# a duplicate-file run is logged ok but loads no rows; it must not shadow the run that has them #}
+      and run_id in (select distinct run_id from {{ source('raw', 'sodra') }})
+      {%- endif %}
     group by 1
 {%- endmacro %}

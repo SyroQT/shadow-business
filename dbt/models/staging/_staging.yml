@@ -39,3 +39,20 @@ models:
           - accepted_values:
               arguments:
                 values: [robots_disallow, social_domain, no_website, capped, error]
+  - name: stg_sodra
+    description: One row per (run_month, jar_code, month) for the selected Sodra run of each month; rows without a jarCode are dropped.
+    data_tests:
+      - unique_combination:
+          arguments:
+            columns: [run_month, jar_code, month]
+    columns:
+      - name: run_month
+        data_tests: [not_null]
+      - name: jar_code
+        data_tests:
+          - not_null
+          - matches_regex:
+              arguments:
+                pattern: '^\d{9}$'
+      - name: month
+        data_tests: [not_null]
