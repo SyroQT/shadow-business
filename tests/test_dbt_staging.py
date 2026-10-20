@@ -123,3 +123,11 @@ def test_sodra_empty_duplicate_run_does_not_shadow(tmp_path):
         (_run("2026-10", 2), {"steps": {"sodra": "ok"}}),
     ])
     assert rows(db, "select jar_code from staging.stg_sodra") == [("111111111",)]
+
+
+def test_places_empty_ok_run_does_not_shadow(tmp_path):
+    db = _db(tmp_path, [
+        (_run("2026-10", 1), {"places": [place("kept", CAT, "Kept")]}),
+        (_run("2026-10", 2), {}),
+    ])
+    assert rows(db, "select place_id from staging.stg_places") == [("kept",)]

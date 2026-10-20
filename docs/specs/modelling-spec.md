@@ -42,7 +42,7 @@ Source `raw` with tables `places`, `places_errors`, `web_pages`, `sodra`, `run_l
 
 ## 2. Run selection (monthly history)
 
-A run counts as usable for a step when its `raw.run_log` row for that step has `status <> 'failed'`. (`partial` and `capped` are usable: they hold real rows. The current demo places run is `partial`.) `run_month` is the `YYYY-MM` prefix of `run_id` (and equals `run_log.run_month`).
+A run counts as usable for a step when its `raw.run_log` row for that step has `status <> 'failed'` **and** at least one row of that run exists in the step's raw table (`raw.places` for `places`, `raw.sodra` for `sodra`). The row check matters because a run can be logged `ok` without landing data, e.g. a duplicate Sodra file is logged `ok` with 0 rows and must not shadow the earlier run that holds the rows. (`partial` and `capped` are usable: they hold real rows. The current demo places run is `partial`.) `run_month` is the `YYYY-MM` prefix of `run_id` (and equals `run_log.run_month`).
 
 Staging keeps **all months**, with exactly one run per month per source, so that months can be compared and an older month never changes when a new one lands:
 - **Places and web pages** come from one run: the crawl step reuses the places `run_id`. For each `run_month`, the selected run is the greatest `run_id` in that month with a usable `places` row. `run_id` sorts by time because it starts with `YYYY-MM_` followed by a UTC timestamp. Web pages are taken from that same `run_id`. If its crawl step has not run, that month's web pages are simply empty.
