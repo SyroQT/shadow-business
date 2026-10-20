@@ -21,6 +21,13 @@ def test_seed_matches_categories_yaml():
     assert actual == expected
 
 
+def test_lead_rules_seed_matches_categories_yaml():
+    cfg = yaml.safe_load((ROOT / "config" / "categories.yaml").read_text())
+    with (ROOT / "dbt" / "seeds" / "category_lead_rules.csv").open(newline="") as f:
+        actual = {r["category"] for r in csv.DictReader(f)}
+    assert actual == set(cfg["categories"])
+
+
 def test_build_on_empty_raw_db(tmp_path):
     db = tmp_path / "t.duckdb"
     connect(db).close()
