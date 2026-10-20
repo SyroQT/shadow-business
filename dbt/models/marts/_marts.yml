@@ -1,0 +1,198 @@
+version: 2
+
+models:
+  - name: mart_leads
+    description: One row per company and month with tier, ranks, analyst reason text and previous tier (leads spec sections 4-6).
+    data_tests:
+      - unique_combination:
+          arguments:
+            columns: [run_month, jar_code]
+    columns:
+      - name: run_month
+        data_tests: [not_null]
+      - name: jar_code
+        data_tests: [not_null]
+      - name: tier
+        data_tests:
+          - not_null
+          - accepted_values:
+              arguments:
+                values: [flag, watch, clear, excluded]
+      - name: exclusion_reason
+        data_tests:
+          - accepted_values:
+              arguments:
+                values: [weak_match, not_operational, no_employee_data, too_few_reviews]
+      - name: lead_reason
+        data_tests: [not_null]
+
+unit_tests:
+  - name: tier_each
+    model: mart_leads
+    given:
+      - input: ref('int_lead_signals')
+        rows:
+          - {run_month: "2026-10", jar_code: "100000001", exclusion_reason: null, is_busy: true, is_low_wage: true, rpe_vs_median: 3.0, peer_count: 6, category_label: x, n_places: 1, num_insured: 4, chain_user_rating_count: 400, reviews_per_employee: 100.0, category_median_rpe: 33.3, avg_wage: 1000.00}
+          - {run_month: "2026-10", jar_code: "100000002", exclusion_reason: null, is_busy: true, is_low_wage: false, rpe_vs_median: 3.0, peer_count: 6, category_label: x, n_places: 1, num_insured: 4, chain_user_rating_count: 400, reviews_per_employee: 100.0, category_median_rpe: 33.3, avg_wage: 2000.00}
+          - {run_month: "2026-10", jar_code: "100000003", exclusion_reason: null, is_busy: true, is_low_wage: null, rpe_vs_median: 3.0, peer_count: 6, category_label: x, n_places: 1, num_insured: 4, chain_user_rating_count: 400, reviews_per_employee: 100.0, category_median_rpe: 33.3, avg_wage: null}
+          - {run_month: "2026-10", jar_code: "100000004", exclusion_reason: null, is_busy: false, is_low_wage: true, rpe_vs_median: 1.0, peer_count: 6, category_label: x}
+          - {run_month: "2026-10", jar_code: "100000005", exclusion_reason: too_few_reviews, is_busy: null, is_low_wage: null}
+    expect:
+      rows:
+        - {jar_code: "100000001", tier: flag}
+        - {jar_code: "100000002", tier: watch}
+        - {jar_code: "100000003", tier: watch}
+        - {jar_code: "100000004", tier: clear}
+        - {jar_code: "100000005", tier: excluded}
+
+  - name: lead_rank_within_tier
+    model: mart_leads
+    given:
+      - input: ref('int_lead_signals')
+        rows:
+          - {run_month: "2026-10", jar_code: "100000001", exclusion_reason: null, is_busy: true, is_low_wage: false, rpe_vs_median: 2.5, peer_count: 6, category_label: x}
+          - {run_month: "2026-10", jar_code: "100000002", exclusion_reason: null, is_busy: true, is_low_wage: false, rpe_vs_median: 4.0, peer_count: 6, category_label: x}
+          - {run_month: "2026-10", jar_code: "100000003", exclusion_reason: null, is_busy: true, is_low_wage: false, rpe_vs_median: 2.5, peer_count: 6, category_label: x}
+          - {run_month: "2026-10", jar_code: "100000004", exclusion_reason: null, is_busy: false, is_low_wage: false, rpe_vs_median: 1.0, peer_count: 6, category_label: x}
+    expect:
+      rows:
+        - {jar_code: "100000001", tier: watch, lead_rank: 2, priority_rank: 2}
+        - {jar_code: "100000002", tier: watch, lead_rank: 1, priority_rank: 1}
+        - {jar_code: "100000003", tier: watch, lead_rank: 3, priority_rank: 3}
+        - {jar_code: "100000004", tier: clear, lead_rank: 1, priority_rank: 4}
+
+  - name: priority_rank_order
+    model: mart_leads
+    given:
+      - input: ref('int_lead_signals')
+        rows:
+          - {run_month: "2026-10", jar_code: "100000001", exclusion_reason: null, is_busy: true, is_low_wage: false, rpe_vs_median: 2.1, peer_count: 6, category_label: x}
+          - {run_month: "2026-10", jar_code: "100000002", exclusion_reason: null, is_busy: false, is_low_wage: false, rpe_vs_median: 1.9, peer_count: 6, category_label: x}
+          - {run_month: "2026-10", jar_code: "100000003", exclusion_reason: null, is_busy: null, is_low_wage: false, rpe_vs_median: 2.5, peer_count: 4, category_label: x}
+          - {run_month: "2026-10", jar_code: "100000004", exclusion_reason: weak_match, is_busy: null, is_low_wage: null, best_match_confidence: low, best_match_confidence_reasons: [no_label]}
+    expect:
+      rows:
+        - {jar_code: "100000001", tier: watch, lead_rank: 1, priority_rank: 1}
+        - {jar_code: "100000002", tier: clear, lead_rank: 2, priority_rank: 3}
+        - {jar_code: "100000003", tier: clear, lead_rank: 1, priority_rank: 2}
+        - {jar_code: "100000004", tier: excluded, priority_rank: null, lead_rank: null}
+
+  - name: all_excluded_no_priority
+    model: mart_leads
+    given:
+      - input: ref('int_lead_signals')
+        rows:
+          - {run_month: "2026-10", jar_code: "100000001", exclusion_reason: not_operational, category_label: x}
+          - {run_month: "2026-10", jar_code: "100000002", exclusion_reason: no_employee_data, category_label: x}
+    expect:
+      rows:
+        - {jar_code: "100000001", tier: excluded, lead_rank: null, priority_rank: null}
+        - {jar_code: "100000002", tier: excluded, lead_rank: null, priority_rank: null}
+
+  - name: reason_flag
+    model: mart_leads
+    given:
+      - input: ref('int_lead_signals')
+        rows:
+          - {run_month: "2026-10", jar_code: "100000001", exclusion_reason: null, is_busy: true, is_low_wage: true, chain_user_rating_count: 1006, n_places: 1, num_insured: 4, reviews_per_employee: 251.5, rpe_vs_median: 6.3, category_median_rpe: 40.0, category_label: "cafés and restaurants", peer_count: 6, avg_wage: 989.55}
+    expect:
+      rows:
+        - {jar_code: "100000001", lead_reason: "1006 Google reviews across 1 place(s) and 4 insured employees: 251.5 reviews per employee, 6.3× the cafés and restaurants median (40.0). Average wage €989.55, below the minimum wage (€1153)."}
+
+  - name: reason_flag_at_and_near
+    model: mart_leads
+    given:
+      - input: ref('int_lead_signals')
+        rows:
+          - {run_month: "2026-10", jar_code: "100000001", exclusion_reason: null, is_busy: true, is_low_wage: true, chain_user_rating_count: 1000, n_places: 2, num_insured: 5, reviews_per_employee: 200.0, rpe_vs_median: 5.0, category_median_rpe: 40.0, category_label: "hair and beauty", peer_count: 6, avg_wage: 1153.00}
+          - {run_month: "2026-10", jar_code: "100000002", exclusion_reason: null, is_busy: true, is_low_wage: true, chain_user_rating_count: 1000, n_places: 2, num_insured: 5, reviews_per_employee: 200.0, rpe_vs_median: 5.0, category_median_rpe: 40.0, category_label: "hair and beauty", peer_count: 6, avg_wage: 1200.5}
+    expect:
+      rows:
+        - {jar_code: "100000001", lead_reason: "1000 Google reviews across 2 place(s) and 5 insured employees: 200.0 reviews per employee, 5.0× the hair and beauty median (40.0). Average wage €1153.00, at the minimum wage (€1153)."}
+        - {jar_code: "100000002", lead_reason: "1000 Google reviews across 2 place(s) and 5 insured employees: 200.0 reviews per employee, 5.0× the hair and beauty median (40.0). Average wage €1200.50, near the minimum wage (€1153)."}
+
+  - name: reason_watch_normal_wage
+    model: mart_leads
+    given:
+      - input: ref('int_lead_signals')
+        rows:
+          - {run_month: "2026-10", jar_code: "100000001", exclusion_reason: null, is_busy: true, is_low_wage: false, chain_user_rating_count: 800, n_places: 3, num_insured: 10, reviews_per_employee: 80.0, rpe_vs_median: 2.1, category_median_rpe: 38.1, category_label: "cafés and restaurants", peer_count: 6, avg_wage: 1800.00}
+    expect:
+      rows:
+        - {jar_code: "100000001", lead_reason: "800 Google reviews across 3 place(s) and 10 insured employees: 80.0 reviews per employee, 2.1× the cafés and restaurants median (38.1). Average wage €1800.00 looks normal."}
+
+  - name: reason_watch_unknown_wage
+    model: mart_leads
+    given:
+      - input: ref('int_lead_signals')
+        rows:
+          - {run_month: "2026-10", jar_code: "100000001", exclusion_reason: null, is_busy: true, is_low_wage: null, chain_user_rating_count: 800, n_places: 3, num_insured: 10, reviews_per_employee: 80.0, rpe_vs_median: 2.1, category_median_rpe: 38.1, category_label: "cafés and restaurants", peer_count: 6, avg_wage: null}
+    expect:
+      rows:
+        - {jar_code: "100000001", lead_reason: "800 Google reviews across 3 place(s) and 10 insured employees: 80.0 reviews per employee, 2.1× the cafés and restaurants median (38.1). Average wage not published by Sodra."}
+
+  - name: reason_clear_below
+    model: mart_leads
+    given:
+      - input: ref('int_lead_signals')
+        rows:
+          - {run_month: "2026-10", jar_code: "100000001", exclusion_reason: null, is_busy: false, is_low_wage: false, rpe_vs_median: 1.4, category_label: "cafés and restaurants", peer_count: 6}
+    expect:
+      rows:
+        - {jar_code: "100000001", lead_reason: "1.4× the cafés and restaurants median; below the 2.0× threshold."}
+
+  - name: reason_clear_few_peers
+    model: mart_leads
+    given:
+      - input: ref('int_lead_signals')
+        rows:
+          - {run_month: "2026-10", jar_code: "100000001", exclusion_reason: null, is_busy: null, is_low_wage: false, rpe_vs_median: 3.0, category_label: "hair and beauty", peer_count: 4}
+    expect:
+      rows:
+        - {jar_code: "100000001", tier: clear, lead_reason: "Only 4 comparable companies in hair and beauty; at least 5 needed to compare."}
+
+  - name: reason_zero_insured
+    model: mart_leads
+    given:
+      - input: ref('int_lead_signals')
+        rows:
+          - {run_month: "2026-10", jar_code: "100000001", exclusion_reason: null, is_busy: true, is_low_wage: false, chain_user_rating_count: 300, n_places: 1, num_insured: 0, reviews_per_employee: 300.0, rpe_vs_median: 7.5, category_median_rpe: 40.0, category_label: "cafés and restaurants", peer_count: 6, avg_wage: 1500.00}
+    expect:
+      rows:
+        - {jar_code: "100000001", lead_reason: "300 Google reviews across 1 place(s) and 0 insured employees: 300.0 reviews per employee, 7.5× the cafés and restaurants median (40.0). Average wage €1500.00 looks normal."}
+
+  - name: reason_excluded_each
+    model: mart_leads
+    given:
+      - input: ref('int_lead_signals')
+        rows:
+          - {run_month: "2026-10", jar_code: "100000001", exclusion_reason: weak_match, best_match_confidence: low, best_match_confidence_reasons: [no_label, evrk_mismatch], category_label: x}
+          - {run_month: "2026-10", jar_code: "100000002", exclusion_reason: weak_match, best_match_confidence: low, best_match_confidence_reasons: [], category_label: x}
+          - {run_month: "2026-10", jar_code: "100000003", exclusion_reason: not_operational, category_label: x}
+          - {run_month: "2026-10", jar_code: "100000004", exclusion_reason: no_employee_data, category_label: x}
+          - {run_month: "2026-10", jar_code: "100000005", exclusion_reason: too_few_reviews, chain_user_rating_count: 50, min_reviews: 200, category_label: "cafés and restaurants"}
+    expect:
+      rows:
+        - {jar_code: "100000001", lead_reason: "Company code on the website may not belong to this business (no_label, evrk_mismatch)."}
+        - {jar_code: "100000002", lead_reason: "Company code on the website may not belong to this business (low confidence)."}
+        - {jar_code: "100000003", lead_reason: "No place of this company is currently operational."}
+        - {jar_code: "100000004", lead_reason: "Sodra has no insured-employee count for this company."}
+        - {jar_code: "100000005", lead_reason: "Only 50 Google reviews; at least 200 needed for cafés and restaurants."}
+
+  - name: prev_tier_latest_earlier_month
+    model: mart_leads
+    given:
+      - input: ref('int_lead_signals')
+        rows:
+          # 111: 2026-08 clear, absent 2026-09, 2026-10 watch -> prev_tier null
+          - {run_month: "2026-08", jar_code: "111111111", exclusion_reason: null, is_busy: false, is_low_wage: false, rpe_vs_median: 1.0, peer_count: 6, category_label: x}
+          - {run_month: "2026-10", jar_code: "111111111", exclusion_reason: null, is_busy: true, is_low_wage: false, rpe_vs_median: 2.5, peer_count: 6, category_label: x}
+          # 222: present 2026-09 (watch) and 2026-10 (clear)
+          - {run_month: "2026-09", jar_code: "222222222", exclusion_reason: null, is_busy: true, is_low_wage: false, rpe_vs_median: 2.5, peer_count: 6, category_label: x}
+          - {run_month: "2026-10", jar_code: "222222222", exclusion_reason: null, is_busy: false, is_low_wage: false, rpe_vs_median: 1.0, peer_count: 6, category_label: x}
+    expect:
+      rows:
+        - {run_month: "2026-08", jar_code: "111111111", tier: clear, prev_tier: null}
+        - {run_month: "2026-10", jar_code: "111111111", tier: watch, prev_tier: null}
+        - {run_month: "2026-09", jar_code: "222222222", tier: watch, prev_tier: null}
+        - {run_month: "2026-10", jar_code: "222222222", tier: clear, prev_tier: watch}

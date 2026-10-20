@@ -83,3 +83,23 @@ def rows(db_path, sql) -> list[tuple]:
         return con.execute(sql).fetchall()
     finally:
         con.close()
+
+
+def load_lead_demo(con, run: RunContext) -> None:
+    """Seven cafes at one run: a fetched home page with the company code and a Sodra row each.
+
+    Reviews 300 x4, 2000 (wage 1000, flag), 1500 (wage 2000, watch), 50 (too few reviews).
+    Codes 100000001..100000007; the 2000-review cafe is 100000005, the 1500 one 100000006.
+    """
+    spec = [(300, "1500.00"), (300, "1500.00"), (300, "1500.00"), (300, "1500.00"),
+            (2000, "1000.00"), (1500, "2000.00"), (50, "1500.00")]
+    places, pages, rows_ = [], [], []
+    for i, (reviews, wage) in enumerate(spec, start=1):
+        code = f"10000000{i}"
+        pid = f"demo{i}"
+        places.append(place(pid, "cafes_restaurants", f"Cafe {i}", website=f"https://c{i}.lt/",
+                            user_rating_count=reviews, rating=4.5))
+        pages.append(page(pid, "home", f"Įmonės kodas: {code}", url=f"https://c{i}.lt/"))
+        rows_.append(sodra(code, num_insured="10", avg_wage=wage, name=f"UAB Cafe {i}"))
+    load(con, run, places=places, pages=pages, sodra=rows_,
+         steps={"places": "ok", "sodra": "ok"})
