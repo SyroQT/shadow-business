@@ -1,17 +1,15 @@
 # Usage: README "Quick start" and "Run types".
-x-app: &app
-  image: oxylabs-leads
-  build: .
-
 services:
   demo:
-    <<: *app
+    image: oxylabs-leads
+    build: .
     entrypoint: ["python", "-m", "src.cli", "demo"]
     volumes:
       - ./output:/app/output
 
   full:
-    <<: *app
+    image: oxylabs-leads
+    build: .
     entrypoint: ["python", "-m", "src.cli", "full"]
     env_file:
       - path: .env
@@ -22,7 +20,8 @@ services:
       - ./snapshots:/app/snapshots
 
   snapshot:
-    <<: *app
+    image: oxylabs-leads
+    build: .
     entrypoint: ["python", "-m", "src.cli", "snapshot"]
     volumes:
       - ./data:/app/data

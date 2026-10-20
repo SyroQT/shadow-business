@@ -1,10 +1,10 @@
 # Example output
 
 The demo made these files offline from the committed snapshot
-`snapshots/2026-11_20261020T140513/`, for run month 2026-11:
+`snapshots/2026-10_20261020T140513/`, for run month 2026-10:
 
-- `2026-11/leads.csv`: the final mart, `marts.mart_leads`.
-- `2026-11/leads.md`: the analyst cards (`--top 10`).
+- `2026-10/leads.csv`: the final mart, `marts.mart_leads`.
+- `2026-10/leads.md`: the analyst cards (`--top 10`).
 
 **What the run covered**
 - Central Vilnius, 3 categories, 1,248 Google Places results.
