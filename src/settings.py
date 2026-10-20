@@ -22,6 +22,7 @@ class Settings(BaseSettings):
     sodra_url: str | None = None
     sodra_file: Path | None = None
     db_path: Path = Path("data/leads.duckdb")
+    leads_top_n: int = 10
     cache_dir: Path = Path("data/cache")
     config_path: Path = Path("config/categories.yaml")
 
