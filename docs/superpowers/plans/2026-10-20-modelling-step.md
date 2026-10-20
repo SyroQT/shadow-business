@@ -18,7 +18,7 @@
 - Work on branch `modelling`. Commit at the end of each task. Messages are prefixed `MOD-NN:` and end with `Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>`.
 - Never read, print or commit `.env`. No network in tests. dbt needs no keys.
 - **No dbt packages** (ruling: avoids a networked `dbt deps` step and keeps Docker simple). Generic tests live in `dbt/tests/generic/`.
-- dbt project in `dbt/`; `profiles.yml` in `dbt/`, committed. Profile `leads`, target `dev`, `type: duckdb`, `path: "{{ env_var('DB_PATH', '../data/leads.duckdb') }}"`.
+- dbt project in `dbt/`; `profiles.yml` in `dbt/`, committed. Profile `leads`, target `dev`, `type: duckdb`, `path: "{{ env_var('DB_PATH', 'data/leads.duckdb') }}"`.
 - Schemas: `staging` (all `stg_*` as **views**) and `intermediate` (all `int_*` as **tables**). Configure the schema names so they are exactly `staging` / `intermediate`, without a target-name prefix: override `generate_schema_name`.
 - `raw` is read-only for dbt.
 - Every staging and intermediate model has `run_month` as the first column of its grain.

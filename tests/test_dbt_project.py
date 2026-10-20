@@ -26,3 +26,22 @@ def test_build_on_empty_raw_db(tmp_path):
     connect(db).close()
     build(db)
     assert rows(db, "select count(*) from staging.category_evrk") == [(5,)]
+
+
+def test_profile_fallback_is_repo_root_relative(tmp_path):
+    # Run from a scratch cwd so the real DB is never opened; the fallback is
+    # cwd-relative, so it must be exactly data/leads.duckdb (same as settings).
+    import os
+    import subprocess
+    import sys
+
+    from src.transform import DBT_DIR
+
+    env = {k: v for k, v in os.environ.items() if k != "DB_PATH"}
+    res = subprocess.run(
+        [str(Path(sys.executable).parent / "dbt"), "debug",
+         "--project-dir", str(DBT_DIR), "--profiles-dir", str(DBT_DIR)],
+        cwd=tmp_path, env=env, capture_output=True, text=True,
+    )
+    assert "path: data/leads.duckdb" in res.stdout, res.stdout
+    assert not (ROOT / "dbt" / "data").exists()

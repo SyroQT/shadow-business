@@ -20,7 +20,7 @@ Driven by `task.pdf`, four things shape the design:
 |---|---|
 | Tooling | `dbt-core` + `dbt-duckdb`, added to `pyproject.toml` and run through `uv run dbt ...`. Pin to the current minor versions at implementation time |
 | Location | dbt project in `dbt/` (`dbt_project.yml`, `models/`, `seeds/`, `tests/`, `macros/`). `profiles.yml` lives in `dbt/` too and is committed; it holds no secrets |
-| Database | The same DuckDB file as extraction (`DB_PATH`, default `data/leads.duckdb`). The profile reads the path from env `DB_PATH`, falling back to `../data/leads.duckdb` relative to `dbt/` |
+| Database | The same DuckDB file as extraction (`DB_PATH`, default `data/leads.duckdb`). The profile reads the path from env `DB_PATH`, falling back to `data/leads.duckdb`, relative to the repo root (dbt is run from the repo root) |
 | Schemas | `staging` (views) and `intermediate` (tables) in that file. `raw` is read-only for dbt and is declared as a dbt source |
 | Materialisation | All `stg_*` models are **views**. `int_*` models are **tables** (they run regexes over markdown; rebuilding is cheap at this size) |
 | Naming | `stg_<source>` for staging, `int_<entity>_<verb>` for intermediate. Columns are `snake_case` |

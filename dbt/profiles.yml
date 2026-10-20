@@ -3,5 +3,5 @@ leads:
   outputs:
     dev:
       type: duckdb
-      path: "{{ env_var('DB_PATH', '../data/leads.duckdb') }}"
+      path: "{{ env_var('DB_PATH', 'data/leads.duckdb') }}"
       threads: 1
