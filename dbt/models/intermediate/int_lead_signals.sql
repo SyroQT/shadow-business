@@ -6,6 +6,7 @@ with base as (
         r.min_reviews,
         r.caveat as category_caveat,
         r.label as category_label,
+        w.min_monthly_wage,
         case
             when not (
                 m.best_match_confidence = 'high'
@@ -18,6 +19,7 @@ with base as (
         end as exclusion_reason
     from {{ ref('int_company_month') }} as m
     left join {{ ref('category_lead_rules') }} as r on r.category = m.lead_category
+    left join {{ ref('minimum_wage') }} as w on w.year = year(m.sodra_month)
 ),
 
 rpe as (
@@ -64,9 +66,9 @@ select
         {{ lead_is_busy('rpe_vs_median', 'peer_count', var('busy_multiple'), var('min_peers')) }}
     end as is_busy,
     case when exclusion_reason is null then
-        {{ lead_is_low_wage('avg_wage', var('min_monthly_wage'), var('low_wage_margin')) }}
+        {{ lead_is_low_wage('avg_wage', 'min_monthly_wage', var('low_wage_margin')) }}
     end as is_low_wage,
     case when exclusion_reason is null
-        then round(avg_wage / {{ var('min_monthly_wage') }}, 2)
+        then round(avg_wage / min_monthly_wage, 2)
     end as wage_vs_minimum
 from signals

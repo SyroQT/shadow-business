@@ -38,3 +38,17 @@ seeds:
         data_tests: [not_null]
       - name: label
         data_tests: [not_null]
+
+  - name: minimum_wage
+    description: >
+      Lithuanian minimum monthly wage (MMA) per calendar year, EUR. A lead's Sodra month
+      is judged against its own year's value; add a row each January.
+    config:
+      column_types:
+        year: integer
+        min_monthly_wage: integer
+    columns:
+      - name: year
+        data_tests: [unique, not_null]
+      - name: min_monthly_wage
+        data_tests: [not_null]

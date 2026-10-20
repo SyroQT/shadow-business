@@ -27,7 +27,6 @@ seeds:
     +schema: staging
 
 vars:
-  min_monthly_wage: 1153   # Lithuanian minimum monthly wage (MMA), EUR, 2026; update yearly
-  low_wage_margin: 0.10    # "near" the minimum: avg_wage <= 1153 * 1.10
+  low_wage_margin: 0.10    # "near" the minimum: avg_wage <= minimum wage (seed minimum_wage) * 1.10
   busy_multiple: 2.0       # busy = at least this multiple of the category median reviews per employee
   min_peers: 5             # fewest eligible companies in a category for its median to count

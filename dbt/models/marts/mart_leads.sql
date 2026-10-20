@@ -39,7 +39,6 @@ ranked as (
 texted as (
     select
         *,
-        {{ var('min_monthly_wage') }} as min_monthly_wage,
         {{ var('busy_multiple') }} as busy_multiple,
         -- first sentence shared by flag and watch
         chain_user_rating_count::varchar || ' Google reviews across ' || n_places::varchar
@@ -59,10 +58,10 @@ select
     case tier
         when 'flag' then busy_sentence || ' Average wage €' || printf('%.2f', avg_wage) || ', '
             || case
-                when avg_wage < {{ var('min_monthly_wage') }} then 'below'
-                when avg_wage = {{ var('min_monthly_wage') }} then 'at'
+                when avg_wage < min_monthly_wage then 'below'
+                when avg_wage = min_monthly_wage then 'at'
                 else 'near'
-            end || ' the minimum wage (€' || {{ var('min_monthly_wage') }} || ').'
+            end || ' the minimum wage (€' || min_monthly_wage || ').'
         when 'watch' then busy_sentence || case
                 when is_low_wage is null then ' Average wage not published by Sodra.'
                 else ' Average wage €' || printf('%.2f', avg_wage) || ' looks normal.'

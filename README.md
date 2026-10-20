@@ -100,18 +100,20 @@ Thresholds are dbt vars in `dbt/dbt_project.yml`:
 
 | Var | Value | Meaning |
 |---|---|---|
-| `min_monthly_wage` | `1153` | Lithuanian minimum monthly wage, EUR, 2026. Update yearly |
-| `low_wage_margin` | `0.10` | "near" the minimum: average wage at most 1153 x 1.10 = 1268.30 |
+| `low_wage_margin` | `0.10` | "near" the minimum: average wage at most minimum wage x 1.10 (2026: 1153 x 1.10 = 1268.30) |
 | `busy_multiple` | `2.0` | busy = at least 2x the category median of reviews per employee |
 | `min_peers` | `5` | fewest eligible companies a category needs for its median to count |
 
-and per category in the seed `dbt/seeds/category_lead_rules.csv`: `min_reviews` (fewer reviews than
+The minimum wage is the seed `dbt/seeds/minimum_wage.csv`, one row per year (2024 €924, 2025
+€1038, 2026 €1153); each company is judged against the year of its Sodra month. Add a row each
+January: a Sodra year missing from the seed fails the build.
+
+Per category, the seed `dbt/seeds/category_lead_rules.csv`: `min_reviews` (fewer reviews than
 this and the company is excluded: 200 cafés and restaurants, 100 hair and beauty, 50 car service), a
 `caveat` shown on the lead card and a display `label`.
 
 Thresholds apply to all months on every rebuild: changing a var re-tiers past months and changes
 `prev_tier`, while files already written under `output/` keep the thresholds of their export time.
-The minimum wage is a single var, not one per year.
 
 To try another value without editing files, override a var on the command line (or edit the vars
 or the seed and rebuild). This rebuilds the real `marts.mart_leads` with that value until the next

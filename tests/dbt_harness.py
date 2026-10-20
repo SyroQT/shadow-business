@@ -85,7 +85,7 @@ def rows(db_path, sql) -> list[tuple]:
         con.close()
 
 
-def load_lead_demo(con, run: RunContext) -> None:
+def load_lead_demo(con, run: RunContext, *, sodra_month: str = "202608") -> None:
     """Seven cafes at one run: a fetched home page with the company code and a Sodra row each.
 
     Reviews 300 x4, 2000 (wage 1000, flag), 1500 (wage 2000, watch), 50 (too few reviews).
@@ -100,6 +100,7 @@ def load_lead_demo(con, run: RunContext) -> None:
         places.append(place(pid, "cafes_restaurants", f"Cafe {i}", website=f"https://c{i}.lt/",
                             user_rating_count=reviews, rating=4.5))
         pages.append(page(pid, "home", f"Įmonės kodas: {code}", url=f"https://c{i}.lt/"))
-        rows_.append(sodra(code, num_insured="10", avg_wage=wage, name=f"UAB Cafe {i}"))
+        rows_.append(sodra(code, month=sodra_month, num_insured="10", avg_wage=wage,
+                           name=f"UAB Cafe {i}"))
     load(con, run, places=places, pages=pages, sodra=rows_,
          steps={"places": "ok", "sodra": "ok"})

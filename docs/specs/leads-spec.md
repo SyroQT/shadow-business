@@ -67,8 +67,9 @@ dbt vars in `dbt_project.yml`:
 
 | var | value | meaning |
 |---|---|---|
-| `min_monthly_wage` | `1153` | Lithuanian minimum monthly wage (MMA), EUR, 2026. Update yearly |
-| `low_wage_margin` | `0.10` | "near" the minimum: `avg_wage <= 1153 × 1.10 = 1268.30` |
+| `low_wage_margin` | `0.10` | "near" the minimum: `avg_wage <= min_monthly_wage × 1.10` (2026: 1268.30) |
+
+`min_monthly_wage` is not a var: it comes from the seed `minimum_wage` (year, EUR: 2024 924, 2025 1038, 2026 1153), joined on `year(sodra_month)`. A Sodra year missing from the seed fails the build (`not_null` on eligible rows).
 | `busy_multiple` | `2.0` | busy = at least 2× the category median reviews per employee |
 | `min_peers` | `5` | fewest eligible companies in a category for its median to count |
 
@@ -125,7 +126,7 @@ A low wage **alone** never makes a lead: part-time work is legal and lowers the 
 
 `lead_reason` (VARCHAR), one sentence built in SQL from the row's own numbers, so the analyst never needs to look up a formula.
 
-- `flag`: `"{chain reviews} Google reviews across {n_places} place(s) and {num_insured} insured employees: {rpe} reviews per employee, {rpe_vs_median}× the {lead_category} median ({median}). Average wage €{avg_wage}, {at/below/near} the minimum wage (€1153)."`
+- `flag`: `"{chain reviews} Google reviews across {n_places} place(s) and {num_insured} insured employees: {rpe} reviews per employee, {rpe_vs_median}× the {lead_category} median ({median}). Average wage €{avg_wage}, {at/below/near} the minimum wage (€{min_monthly_wage})."`
 - `watch`: the same first sentence, then `"Average wage €{avg_wage} looks normal."` or `"Average wage not published by Sodra."`
 - `clear`: `"{rpe_vs_median}× the {lead_category} median; below the {busy_multiple}× threshold."` or `"Only {peer_count} comparable companies in {lead_category}; at least {min_peers} needed to compare."`
 - `excluded`: a fixed sentence per `exclusion_reason`, e.g. `weak_match` → `"Company code on the website may not belong to this business ({reasons})."`, `match_rejected` → `"Match checked by hand and rejected: {note}."`
@@ -148,7 +149,7 @@ Columns of `mart_leads`:
 | match evidence | `best_match_confidence`, `best_match_confidence_reasons`, `code_source_url`, `code_context`, `match_review_verdict`, `match_review_note` (§8.2; null when not checked by hand) |
 | robustness | `settings_as_lead`, `settings_total` (§8.1) |
 | lineage | `places_run_id`, `sodra_run_id`, `sodra_source_url`, `sodra_file_sha256` |
-| thresholds used | `min_monthly_wage`, `busy_multiple` (copied in, so an old month's row still explains itself after a var changes) |
+| thresholds used | `min_monthly_wage` (the Sodra year's value from the seed), `busy_multiple` (the current var: a rebuild re-tiers past months with it) |
 
 `prev_tier`: the tier of the same `jar_code` in the latest earlier `run_month` present in `mart_leads`; null when the company was not there.
 
@@ -165,7 +166,7 @@ Columns of `mart_leads`:
 FLAG #1  <company_name> (<lead_category>)                    run <run_month>
   Busy:   <chain reviews> Google reviews, <n_places> place(s); <num_insured> insured employees
           → <rpe> reviews per employee, <rpe_vs_median>× the <category> median (<median>)
-  Paid:   average wage €<avg_wage>, <wage_vs_minimum>× the minimum wage (€1153)
+  Paid:   average wage €<avg_wage>, <wage_vs_minimum>× the minimum wage (€<min_monthly_wage>)
   Match:  company code <jar_code> on <code_source_url>
           "<code_context>"
           Sodra: <company_name>, EVRK <evrk_code>, data month <sodra_month>
@@ -195,7 +196,7 @@ There is no ground truth for shadow-economy activity, so the list cannot be scor
 Question: would different, equally reasonable thresholds give a different list?
 
 - Seed `dbt/seeds/threshold_grid.csv` (`busy_multiple`, `low_wage_margin`): the 9 combinations of `{1.5, 2.0, 3.0}` × `{0.00, 0.10, 0.20}`. It must contain the current vars as one row (test).
-- `mart_threshold_sensitivity` (table, `marts`), grain `(run_month, busy_multiple, low_wage_margin, jar_code)`, over eligible companies only: the eligible rows of `int_lead_signals` cross-joined with the grid, tier recomputed through the §4 macros. `min_peers` and `min_monthly_wage` stay at their vars.
+- `mart_threshold_sensitivity` (table, `marts`), grain `(run_month, busy_multiple, low_wage_margin, jar_code)`, over eligible companies only: the eligible rows of `int_lead_signals` cross-joined with the grid, tier recomputed through the §4 macros. `min_peers` stays at its var and `min_monthly_wage` is the row's yearly value.
 - `mart_leads.settings_as_lead` = count of grid rows where the company is `flag` or `watch`; `settings_total` = grid rows (9). Null for `excluded`.
 - Export, in `leads.md`:
   - grid table: rows `busy_multiple`, columns `low_wage_margin`, cell `"<flag> flag / <watch> watch"`, the current setting in bold;
