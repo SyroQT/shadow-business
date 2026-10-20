@@ -161,11 +161,13 @@ All steps below work within a `run_month`.
 3. **Pick one code.** From `int_page_company_codes`, choose per place by: labelled first, then the most occurrences, then found on a `legal_candidate` page, then the lowest `jar_code` (for determinism). Record `n_candidate_codes` (the count of valid codes found) so ambiguous places stay visible.
 4. **Attach Sodra.** Join the chosen `jar_code` to the company's **latest data month** in the Sodra run paired with this `run_month`.
 5. **Confidence.** `match_confidence`, for matched rows only (null otherwise):
-   - `high`: `code_is_labelled` and `evrk_matches_category` and `n_candidate_codes = 1`;
-   - `medium`: matched, but exactly one of `code_is_labelled` / `evrk_matches_category` is false, or `n_candidate_codes > 1` with both true;
-   - `low`: neither the label nor the EVRK fit holds.
+   - `high`: `code_is_labelled` and `evrk_matches_category` is true and `n_candidate_codes = 1`;
+   - `low`: not `code_is_labelled` and `evrk_matches_category` is not true (false or null);
+   - `medium`: every other matched row.
 
-   The lead step must only score `high` (and optionally `medium`) matches. A code on a site can belong to someone else (the web agency, a franchisor, a booking platform, a landlord), and the label plus activity-code checks are what tells them apart. `match_confidence_reasons` (`VARCHAR[]`) lists the failed checks (`no_label`, `evrk_mismatch`, `multiple_codes`), so the analyst sees why.
+   A null `evrk_matches_category` on a matched row (the company's `evrk_code` is missing) counts as the EVRK check not passed, with reason `evrk_unknown` rather than `evrk_mismatch`.
+
+   The lead step must only score `high` (and optionally `medium`) matches. A code on a site can belong to someone else (the web agency, a franchisor, a booking platform, a landlord), and the label plus activity-code checks are what tells them apart. `match_confidence_reasons` (`VARCHAR[]`) lists the failed checks (in this order: `no_label`, `evrk_mismatch`, `evrk_unknown`, `multiple_codes`), so the analyst sees why. It is `[]` for `high` and null when unmatched. A null `user_rating_count` counts as 0 in `chain_user_rating_count`.
 6. **Chains.** Within a `run_month`, over matched rows: `places_sharing_code` = the number of places with the same `jar_code` (1 for a single-site company), and `chain_user_rating_count` = the sum of `user_rating_count` over those places. A company with six cafés and 40 employees should be compared on its total public activity, not flagged once per branch with one-sixth of its staff.
 
 Columns:

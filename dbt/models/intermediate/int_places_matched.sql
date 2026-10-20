@@ -1,5 +1,5 @@
 {# One row per (run_month, place_id): every place of each month's selected run.
-   Spec section 4.2 steps 1-4. match_confidence and chain columns come later. #}
+   Spec section 4.2 steps 1-6. #}
 with places as (
     select
         run_month,
@@ -73,6 +73,9 @@ staged as (
     left join {{ ref('int_run_pairs') }} as r using (run_month)
 )
 
+,
+
+joined as (
 select
     s.run_month,
     s.place_id,
@@ -131,3 +134,70 @@ left join unmatched_places as u
 left join latest_sodra as d
     on d.run_id = s.sodra_run_id and d.jar_code = k.jar_code and d.recency = 1
     and s.crawl_status = 'fetched'
+),
+
+scored as (
+    select
+        *,
+        match_status = 'matched' as is_matched,
+        -- an unknown EVRK fit (null) counts as not passed, with its own reason.
+        coalesce(evrk_matches_category, false) as evrk_passed
+    from joined
+)
+
+select
+    run_month,
+    place_id,
+    name,
+    categories,
+    primary_type,
+    address,
+    lat,
+    lng,
+    rating,
+    user_rating_count,
+    website_uri,
+    business_status,
+    google_maps_uri,
+    crawl_status,
+    pages_fetched,
+    match_status,
+    case
+        when not is_matched then null
+        when code_is_labelled and evrk_passed and n_candidate_codes = 1 then 'high'
+        when not code_is_labelled and not evrk_passed then 'low'
+        else 'medium'
+    end as match_confidence,
+    case
+        when not is_matched then null
+        else list_filter(
+            [
+                case when not code_is_labelled then 'no_label' end,
+                case when evrk_matches_category is false then 'evrk_mismatch' end,
+                case when evrk_matches_category is null then 'evrk_unknown' end,
+                case when n_candidate_codes > 1 then 'multiple_codes' end
+            ],
+            x -> x is not null
+        )
+    end as match_confidence_reasons,
+    jar_code,
+    code_is_labelled,
+    n_candidate_codes,
+    code_source_url,
+    code_context,
+    case when is_matched then count(*) over (partition by run_month, jar_code)::integer end as places_sharing_code,
+    case when is_matched then sum(coalesce(user_rating_count, 0)) over (partition by run_month, jar_code)::bigint end as chain_user_rating_count,
+    company_name,
+    municipality,
+    evrk_code,
+    evrk_name,
+    sodra_month,
+    num_insured,
+    avg_wage,
+    tax,
+    evrk_matches_category,
+    places_run_id,
+    sodra_run_id,
+    sodra_source_url,
+    sodra_file_sha256
+from scored
