@@ -78,7 +78,8 @@ It writes:
 - a note that Places content is a small demo sample.
 
 **Rules:**
-- No file in the snapshot may contain an API key. The snapshot test greps for the configured key values when they are set, and for `key=` / `Bearer `.
+- No file in the snapshot may contain an API key. The snapshot test scans the parquet contents and the manifest for key-shaped strings (`AIza…`, `fc-…`, `Bearer `); tests never load `.env`.
+- Local `file://` Sodra paths are reduced to the file name (`file:monthly-2026.csv.zip`), so the author's home path is not published.
 - The command refuses to overwrite a non-empty output directory unless `--force` is given.
 
 ### 3.3 `demo [--snapshot DIR] [--out DIR] [--top N]`
