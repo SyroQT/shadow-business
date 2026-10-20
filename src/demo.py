@@ -4,9 +4,7 @@ from pathlib import Path
 from src.db import connect
 from src.export import export_leads
 from src.snapshot import SNAPSHOT_ROOT, TABLES
-from src.transform import run_dbt
-
-STDOUT_TAIL_LINES = 20
+from src.transform import run_dbt, stdout_tail
 
 
 class DemoError(Exception):
@@ -37,6 +35,5 @@ def run_demo(snapshot_dir: Path, db_path: Path, out_dir: Path, top_n: int) -> Pa
         con.close()
     res = run_dbt(["build"], db_path)
     if res.returncode != 0:
-        tail = (res.stdout or "").splitlines()[-STDOUT_TAIL_LINES:]
-        raise DemoError("dbt build failed:\n" + "\n".join(tail))
+        raise DemoError("dbt build failed:\n" + stdout_tail(res, 20))
     return export_leads(db_path, Path(out_dir), top_n)

@@ -1,6 +1,6 @@
 from datetime import datetime
 
-from src.budget import format_caps, plan_caps, used_this_month
+from src.budget import Budget, format_budgets, plan_budgets, used_this_month
 from src.db import connect
 from src.settings import Settings
 
@@ -27,7 +27,7 @@ def test_used_this_month_counts_current_month_only(tmp_path):
     _log(con, "c", "sodra", datetime(2026, 10, 19), 99)
     _log(con, "d", "places", datetime(2026, 11, 1), 7)
     con.close()
-    assert used_this_month(db, NOW) == {"places": 15, "crawl": 247}
+    assert used_this_month(db, NOW) == {"places": 15, "firecrawl": 247}
 
 
 def test_used_this_month_december_rollover(tmp_path):
@@ -36,32 +36,29 @@ def test_used_this_month_december_rollover(tmp_path):
     _log(con, "a", "places", datetime(2026, 12, 31), 3)
     _log(con, "b", "places", datetime(2027, 1, 1), 5)
     con.close()
-    assert used_this_month(db, datetime(2026, 12, 15)) == {"places": 3, "crawl": 0}
+    assert used_this_month(db, datetime(2026, 12, 15)) == {"places": 3, "firecrawl": 0}
 
 
 def test_used_this_month_missing_db(tmp_path):
     db = tmp_path / "none.duckdb"
-    assert used_this_month(db, NOW) == {"places": 0, "crawl": 0}
+    assert used_this_month(db, NOW) == {"places": 0, "firecrawl": 0}
     assert not db.exists()
 
 
-def test_plan_caps_min_of_max_and_remaining():
-    c = plan_caps(settings(max_places_requests=1000, max_firecrawl_pages=600),
-                  {"places": 950, "crawl": 0})
-    assert (c.places_remaining, c.places_cap) == (50, 50)
-    assert (c.firecrawl_remaining, c.firecrawl_cap) == (1000, 600)
-    assert c.exhausted == []
+def test_plan_budgets_min_of_max_and_remaining():
+    b = plan_budgets(settings(max_places_requests=1000, max_firecrawl_pages=600),
+                     {"places": 950, "firecrawl": 0})
+    assert b == {"places": Budget(950, 1000, 50), "firecrawl": Budget(0, 1000, 600)}
 
 
-def test_plan_caps_floor_zero():
-    c = plan_caps(settings(), {"places": 1200, "crawl": 1000})
-    assert (c.places_remaining, c.places_cap) == (0, 0)
-    assert c.exhausted == ["places", "firecrawl"]
+def test_plan_budgets_floor_zero():
+    b = plan_budgets(settings(), {"places": 1200, "firecrawl": 1000})
+    assert (b["places"].cap, b["firecrawl"].cap) == (0, 0)
 
 
-def test_format_caps():
-    c = plan_caps(settings(max_firecrawl_pages=600), {"places": 11, "crawl": 247})
-    assert format_caps(c) == [
+def test_format_budgets():
+    b = plan_budgets(settings(max_firecrawl_pages=600), {"places": 11, "firecrawl": 247})
+    assert format_budgets(b) == [
         "places: used 11 of 1000 this month, remaining 989, run cap 989",
         "firecrawl: used 247 of 1000 this month, remaining 753, run cap 600",
     ]

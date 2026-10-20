@@ -10,47 +10,50 @@ import sys
 from datetime import UTC, datetime
 from pathlib import Path
 
-from src.budget import format_caps, plan_caps, used_this_month
-from src.settings import Settings, load_settings_or_exit
+from src.budget import format_budgets, plan_budgets, used_this_month
+from src.settings import load_settings_or_exit
 
 
 def cmd_full(dry_run: bool) -> int:
     from src import pipeline
 
     settings = load_settings_or_exit()
-    caps = plan_caps(settings, used_this_month(settings.db_path, datetime.now(UTC)))
+    budgets = plan_budgets(settings, used_this_month(settings.db_path, datetime.now(UTC)))
     if dry_run:
-        print("\n".join(format_caps(caps)))
+        print("\n".join(format_budgets(budgets)))
         return 0
-    if caps.exhausted:
-        for api in caps.exhausted:
-            used, free = getattr(caps, f"{api}_used"), getattr(caps, f"{api}_free")
-            print(f"full: {api} free tier used up this month ({used} of {free})", file=sys.stderr)
+    exhausted = [(api, b) for api, b in budgets.items() if b.cap <= 0]
+    for api, b in exhausted:
+        print(f"full: {api} free tier used up this month ({b.used} of {b.free})", file=sys.stderr)
+    if exhausted:
         return 2
-    os.environ["MAX_PLACES_REQUESTS"] = str(caps.places_cap)
-    os.environ["MAX_FIRECRAWL_PAGES"] = str(caps.firecrawl_cap)
-    code = pipeline.main()
+    capped = settings.model_copy(update={"max_places_requests": budgets["places"].cap,
+                                         "max_firecrawl_pages": budgets["firecrawl"].cap})
+    code, run_id = pipeline.run(capped)
     if code != 0:
         return code
-    return cmd_snapshot(None, None, False)
+    return _snapshot(settings.db_path, run_id, None, False)
 
 
-def cmd_snapshot(run_id: str | None, out: Path | None, force: bool) -> int:
+def _snapshot(db_path: Path, run_id: str | None, out: Path | None, force: bool) -> int:
     from src.snapshot import SnapshotError, write_snapshot
 
-    settings = load_settings_or_exit()
     try:
-        print(write_snapshot(settings.db_path, run_id, out, force))
+        print(write_snapshot(db_path, run_id, out, force))
     except SnapshotError as exc:
         print(f"snapshot: {exc}", file=sys.stderr)
         return 1
     return 0
 
 
+def cmd_snapshot(run_id: str | None, out: Path | None, force: bool) -> int:
+    return _snapshot(load_settings_or_exit().db_path, run_id, out, force)
+
+
 def cmd_demo(snapshot: Path | None, out: Path, top: int | None, db: Path) -> int:
     from src.demo import DemoError, newest_snapshot, run_demo
 
-    top_n = top if top is not None else Settings(_env_file=None).leads_top_n
+    top_n = top if top is not None else int(os.environ.get("LEADS_TOP_N", 10))
     try:
         path = run_demo(snapshot or newest_snapshot(), db, out, top_n)
     except DemoError as exc:

@@ -14,3 +14,8 @@ def run_dbt(args: list[str], db_path: Path) -> subprocess.CompletedProcess[str]:
     ]
     env = {**os.environ, "DB_PATH": str(Path(db_path).resolve())}
     return subprocess.run(cmd, env=env, capture_output=True, text=True)
+
+
+def stdout_tail(result: subprocess.CompletedProcess[str], lines: int = 40) -> str:
+    """The last `lines` lines of a dbt run's stdout, for a failure message."""
+    return "\n".join((result.stdout or "").splitlines()[-lines:])

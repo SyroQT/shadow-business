@@ -8,7 +8,8 @@ from tests.dbt_harness import build, load_lead_demo, sodra
 RUN = new_run("2026-10")
 
 
-def built_lead_db(db: Path) -> Path:
+def raw_lead_db(db: Path) -> Path:
+    """Raw rows only (snapshot needs no dbt build)."""
     con = connect(db)
     load_lead_demo(con, RUN)
     insert_rows(con, "sodra", [sodra("999999999", name="UAB Unrelated")], RUN)
@@ -19,5 +20,9 @@ def built_lead_db(db: Path) -> Path:
         "items_ok": 7, "items_failed": 0, "api_requests": 7, "cache_hits": 0, "notes": None,
     }], RUN)
     con.close()
-    build(db)
+    return db
+
+
+def built_lead_db(db: Path) -> Path:
+    build(raw_lead_db(db))
     return db

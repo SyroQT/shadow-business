@@ -10,8 +10,8 @@ SNAPSHOT_ROOT = Path("snapshots")
 KEY_RE = r"AIza[0-9A-Za-z_-]{20,}|fc-[0-9a-f]{20,}"
 REDACTED = "[redacted-key]"
 TABLES = ("places", "places_errors", "web_pages", "sodra", "run_log")
-NOTE = ("Google Places content is a small demo sample; local Sodra file paths are reduced "
-        "to the file name; key-shaped strings in crawled pages are redacted.")
+NOTE = ("Raw rows of one run for offline replay (python -m src.cli demo). Local Sodra file "
+        "paths are reduced to the file name; key-shaped strings in crawled pages are redacted.")
 
 
 class SnapshotError(Exception):
@@ -53,17 +53,21 @@ def _select(con: duckdb.DuckDBPyConnection, run_id: str, run_month: str) -> None
             regexp_replace(markdown, {_q(KEY_RE)}, {_q(REDACTED)}, 'g') as markdown,
             regexp_replace(links::varchar, {_q(KEY_RE)}, {_q(REDACTED)}, 'g')::json as links)
         from src.raw.web_pages where run_id = ?""", [run_id])
+    # dbt pairs a places month with that month's Sodra run, else the latest earlier one
+    # (int_run_pairs), so every Sodra run up to the run month goes in.
     con.execute("""
         create temp table s_run_log as
         select * from src.raw.run_log
-        where run_id = ? or (step = 'sodra' and run_month = ?)""", [run_id, run_month])
+        where run_id = ? or (step = 'sodra' and run_month <= ?)""", [run_id, run_month])
+    # Sodra rows only for the 9-digit codes on this run's own pages (int_page_code_hits uses
+    # the same regex), so the snapshot stays small and matching sees the same candidates.
     con.execute("""
         create temp table s_sodra as
         select * replace (regexp_replace(source_url, '^file://.*/', 'file:') as source_url)
         from src.raw.sodra
         where run_id in (select run_id from s_run_log where step = 'sodra')
-          and jarCode in (select distinct jar_code from src.intermediate.int_page_code_hits
-                          where run_month = ?)""", [run_month])
+          and jarCode in (select unnest(regexp_extract_all(markdown, '\\b\\d{9}\\b'))
+                          from s_web_pages where markdown is not null)""")
 
 
 def write_snapshot(db_path: Path, run_id: str | None = None, out_dir: Path | None = None,
@@ -74,12 +78,6 @@ def write_snapshot(db_path: Path, run_id: str | None = None, out_dir: Path | Non
     con = duckdb.connect()
     try:
         con.execute(f"attach {_q(str(db_path))} as src (read_only)")
-        has_hits = con.execute(
-            "select count(*) from duckdb_tables() where database_name = 'src' "
-            "and schema_name = 'intermediate' and table_name = 'int_page_code_hits'"
-        ).fetchone()[0]
-        if not has_hits:
-            raise SnapshotError("run dbt build first (intermediate.int_page_code_hits missing)")
         run_id = run_id or latest_complete_run(con)
         if run_id is None:
             raise SnapshotError("no run with both places and crawl in raw.run_log")
