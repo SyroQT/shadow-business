@@ -17,6 +17,8 @@ class Settings(BaseSettings):
     run_month: str | None = None
     max_places_requests: int = 1000
     max_firecrawl_pages: int = 600
+    places_free_tier: int = 1000      # Places Text Search Enterprise free requests / month
+    firecrawl_free_tier: int = 1000   # Firecrawl free-plan credits / month
     places_rate_per_sec: float = 5
     firecrawl_rate_per_min: float = 10
     sodra_url: str | None = None
