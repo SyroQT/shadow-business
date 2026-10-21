@@ -1,14 +1,14 @@
 # Usage: README "Quick start" and "Run types".
 services:
   demo:
-    image: oxylabs-leads
+    image: shadow-business-leads
     build: .
     entrypoint: ["python", "-m", "src.cli", "demo"]
     volumes:
       - ./output:/app/output
 
   full:
-    image: oxylabs-leads
+    image: shadow-business-leads
     build: .
     entrypoint: ["python", "-m", "src.cli", "full"]
     env_file:
@@ -20,7 +20,7 @@ services:
       - ./snapshots:/app/snapshots
 
   snapshot:
-    image: oxylabs-leads
+    image: shadow-business-leads
     build: .
     entrypoint: ["python", "-m", "src.cli", "snapshot"]
     volumes:

@@ -748,7 +748,7 @@ wheels = [
 ]
 
 [[package]]
-name = "oxylabs"
+name = "shadow-business"
 version = "0.1.0"
 source = { virtual = "." }
 dependencies = [
